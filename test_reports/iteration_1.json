@@ -1,0 +1,45 @@
+{
+  "summary": "Full backend + mobile UI review of KHT AI Vision app. Backend: 13/13 pytest cases pass, including the real Gemini 3.1 Pro vision upload->analyze->persist pipeline, list/search/get/delete, dashboard aggregates and trend endpoint. Seed data matches spec (KHT-2026-07-30-001 rating 8.7 PASS). Frontend: Dashboard, Result (heatmap/original toggle + rating gauge + parameters + export + delete), History (search + All/Pass/Fail chips + rows), New Test (Camera/Gallery pickers + form + sticky RUN AI VISION ANALYSIS), Settings modal (default conditions, AI model info, KHT scale) all render correctly on 390x844 mobile viewport. One frontend defect: the KHT RATING TREND line chart on the Trend screen does not render (SVG polyline never inserted) - card is empty; data-points list still works and navigates to result. No deprecated Expo packages detected; no red-screen errors; no console errors during navigation.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "TrendChart (app/(tabs)/trend.tsx line 38 + src/components/TrendChart.tsx)",
+        "issue": "The line chart SVG never renders on the Trend screen. DOM inspection shows no <polyline> or trend <svg> - only the KHT logo SVG. The card labeled 'KHT RATING TREND' is visually empty. Likely cause: the `w > 0 && <TrendChart ...>` gate fails because `onLayout` on the card <View> returns width 0 initially on React Native Web (padding is not accounted for before children mount) or the SVG never gets a valid width. Data-points list renders and navigates correctly.",
+        "testID": "n/a (no testID on chart container)",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix Trend line chart rendering: either pass an explicit width (e.g., Dimensions.get('window').width - spacing.lg*4) instead of relying on onLayout, or move the onLayout to the inner wrapper View and default `w` to a sensible value so <TrendChart> is not gated out. After fix, verify a <polyline> element appears in the DOM on /trend.",
+    "Optional: add a testID to the trend chart SVG container (e.g., 'trend-chart') for easier future automation."
+  ],
+  "critical_code_review_comments": [
+    "server.py uses `@app.on_event('startup')` / `on_event('shutdown')` which are deprecated in modern FastAPI; consider migrating to a lifespan context. Not blocking - endpoints work fine.",
+    "TrendChart component depends on measured layout width; on RN Web this can produce a zero-width initial frame that never re-renders in a ScrollView unless dependencies change. Prefer using Dimensions API or a defaultWidth fallback so the chart is not gated behind `w > 0`.",
+    "Storage key is cached in a module-global (`_storage_key`) which is fine here, but the retry-on-503 path only handles GET; PUT could also 503 after key rotation. Low risk for now."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new pytest file)"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13)",
+    "frontend": "~90% (5/6 screens fully functional; Trend chart missing rendering)"
+  },
+  "seed_data_creation": "One TEST_AI_INTEGRATION_001 record was created during backend tests via /api/upload + /api/analyze (real Gemini call) and then soft-deleted at the end of the run, so no residual test data remains.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend fully verified end-to-end including Gemini 3.1 Pro vision on a real synthetic tube JPEG (PIL-generated with visual features per /app/image_testing.md). Only remaining issue is the empty Trend line chart card on the Trend tab; after fix, re-check that a <polyline> exists inside the KHT RATING TREND card via DOM inspection.",
+  "rca_of_issue": "Trend chart empty card: In /app/frontend/app/(tabs)/trend.tsx the chart is wrapped in `{w > 0 && <TrendChart data={points} width={w - spacing.lg * 2} />}` and `w` is set through `onLayout` on the outer card View. On React Native Web, ScrollView + measured layouts can produce a 0-width first paint that doesn't re-trigger onLayout when the ScrollView content becomes measurable, so `w` stays 0 and the chart never mounts. Mitigation: use `useWindowDimensions()` to compute a static width (window.width - horizontal paddings) OR default `w` to a positive value, OR move onLayout onto an inner wrapper that always mounts. Reproduction: open /trend on 390px viewport - inspect DOM: no <polyline>/<svg> for the chart."
+}

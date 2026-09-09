@@ -1,0 +1,157 @@
+{
+  "app_name": "KHT AI VISION",
+  "personality": "7 Dark-First Utility",
+  "personality_one_liner": "A high-tech, tactical industrial laboratory dashboard built for rapid scanning, real-time data visibility, and machine-level precision.",
+  "color": {
+    "surface": "#0A1420",
+    "onSurface": "#FFFFFF",
+    "surfaceSecondary": "#112033",
+    "onSurfaceSecondary": "#E2E8F0",
+    "surfaceTertiary": "#1A2B40",
+    "onSurfaceTertiary": "#CBD5E1",
+    "surfaceInverse": "#FFFFFF",
+    "onSurfaceInverse": "#0A1420",
+    "brand": "#00D2D3",
+    "brandPrimary": "#00D2D3",
+    "onBrandPrimary": "#0A1420",
+    "brandSecondary": "#F59E0B",
+    "onBrandSecondary": "#0A1420",
+    "brandTertiary": "#0E3342",
+    "onBrandTertiary": "#00D2D3",
+    "success": "#10B981",
+    "onSuccess": "#FFFFFF",
+    "warning": "#F59E0B",
+    "onWarning": "#0A1420",
+    "error": "#EF4444",
+    "onError": "#FFFFFF",
+    "info": "#3B82F6",
+    "onInfo": "#FFFFFF",
+    "border": "#1E3A5F",
+    "borderStrong": "#2B5080",
+    "divider": "#1E3A5F",
+    "muted": "#64748B"
+  },
+  "typography": {
+    "displayFontFamily": "Barlow Condensed",
+    "textFontFamily": "JetBrains Mono",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24,
+      "3xl": 48
+    }
+  },
+  "spacing": {
+    "rule": "Utility tight spacing. Use dividers instead of shadows. Keep padding minimal to maximize data density.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 4,
+    "md": 8,
+    "lg": 12,
+    "pill": 999
+  },
+  "shadow_tier": "0",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": [
+      "Avoid glassmorphism. Use solid surface steps (surface -> surfaceSecondary -> surfaceTertiary) for operational clarity."
+    ],
+    "dont's": [
+      "No blurred backgrounds over dense data screens."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Dashboard",
+      "purpose": "Home operational view showing the latest AI Vision test result, PASS/FAIL status, and the KHT standard reference scale.",
+      "states": {
+        "loading": "Technical scanning animation (cyan scanning line).",
+        "empty": "No recent tests found. Large 'Run New Test' button.",
+        "error": "Hardware/Vision connection lost. Retry."
+      },
+      "layout": "Hero section is a large, stacked component with a massive metric number (e.g., '8.7') using 'Barlow Condensed' at 48pt+ and a bright green/red PASS/FAIL badge. Below it, an edge-to-edge 'KHT Standard Rating Reference Scale' displayed as a horizontal segmented colorbar (Green 10 -> Red 0). Below the scale, display recent parameters in a multi-column, split panel layout with mono-spaced numbers. Use sharp, flat data cards (surfaceSecondary) with 1px borderStrong outlines."
+    },
+    {
+      "name": "New Test / Capture",
+      "purpose": "Input test metadata and capture/upload tube photo to run AI Vision analysis.",
+      "states": {
+        "loading": "Uploading image and executing AI segmentation model...",
+        "empty": "Camera viewfinder ready.",
+        "error": "Image unclear. Retake photo."
+      },
+      "layout": "Camera viewfinder or image upload block occupies the top half. Bottom half is a dense, single-column metadata form (Sample ID, Oil type, Batch, Operator, Test Conditions like 320°C/16h). Sticky primary CTA 'RUN AI VISION ANALYSIS' pinned at the bottom above safe area."
+    },
+    {
+      "name": "AI Analysis Result",
+      "purpose": "Detailed view of the completed test, showcasing the tube photo overlay, heatmap, and extracted parameters.",
+      "states": {
+        "loading": "Rendering heatmap overlays...",
+        "empty": "N/A",
+        "error": "Analysis failed."
+      },
+      "layout": "Top section features the tube image viewer with an AI segmentation overlay/heatmap. Include a toggle or segmented control for 'Original' vs 'Heatmap'. Below the image, show a structured data table using surfaceTertiary rows with monospaced values for 'Deposit Area %', 'Length mm', 'Coverage %', 'Color L*/a*/b*', and 'Thickness Index'. Include an export/share action in the header."
+    },
+    {
+      "name": "History & Data",
+      "purpose": "List of past test runs with filtering and status indicators.",
+      "states": {
+        "loading": "Fetching database records...",
+        "empty": "No historical tests logged.",
+        "error": "Failed to load history."
+      },
+      "layout": "Search bar and filter chips pinned at the top. The list consists of dense, low-padding rows with a thumbnail of the tube on the left, Sample ID and Date in the middle, and the numeric rating with Pass/Fail color coding on the right. Divider lines between rows, no card shadows."
+    },
+    {
+      "name": "Chart & Trend",
+      "purpose": "Data visualization showing rating trends over time.",
+      "states": {
+        "loading": "Plotting data points...",
+        "empty": "Insufficient data to plot trend.",
+        "error": "Chart render error."
+      },
+      "layout": "Large interactive line chart component occupying the top half. Bottom half is a summary list of the plotted points. Support tooltips or modal deep-dives for individual data points on the chart."
+    }
+  ],
+  "images": {
+    "tube_test_history_thumbnail": {
+      "url": "https://images.unsplash.com/photo-1532187863486-abf9dbad1b69?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHwxfHxsYWIlMjB0ZXN0JTIwdHViZSUyMGNsb3NlJTIwdXB8ZW58MHx8fHwxNzg4OTE4ODc2fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Refill of liquid on tubes"
+    },
+    "ai_vision_heatmap_overlay": {
+      "url": "https://images.unsplash.com/photo-1767556030465-c4f92dcfa8c7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzV8MHwxfHNlYXJjaHwxfHx0aGVybWFsJTIwY2FtZXJhJTIwaGVhdG1hcHxlbnwwfHx8fDE3ODg5MTg4NzZ8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Thermal camera heatmap placeholder"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly adhere to the 7 Dark-First Utility personality. Do not use blurred backgrounds or glassmorphism, use solid dark surfaces (surface, surfaceSecondary, surfaceTertiary) to create hierarchy.",
+    "Banned Colors: Any shade of blue (other than the base navy #0A1420), purple, indigo, pink, or magenta are strictly banned. Rely on cyan/teal (#00D2D3) for primary accents and amber/orange (#F59E0B) for secondary/warning accents.",
+    "Typography: Use Barlow Condensed for large metric numbers (ratings, percentages) and JetBrains Mono for data labels, table content, and parameter readouts. Everything should feel monospaced and highly technical.",
+    "Dashboard Component: Build a custom 'KHT Standard Rating Reference Scale'. It should be a segmented horizontal bar representing scores from 10 down to 0, shifting from green to yellow to red.",
+    "Data Tables: For the 'AI Analysis Result' screen, represent parameters like 'Deposit Area %', 'Length mm', and 'Coverage %' using compact rows with clear, sharp dividers. No rounded, floating cards inside the list.",
+    "Images: For any tube image overlays (Original vs Heatmap), implement a toggle using a segmented control that allows the user to switch between the raw image and the thermal map.",
+    "Ensure safe area is respected, and primary CTAs (like 'RUN AI VISION ANALYSIS') are sticky at the bottom."
+  ]
+}
