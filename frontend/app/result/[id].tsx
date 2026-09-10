@@ -7,7 +7,7 @@ import { useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { fileUrl, useDeleteTest, useTest } from "@/src/api";
+import { fileUrl, imageToDataUri, useDeleteTest, useTest } from "@/src/api";
 import { Header } from "@/src/components/Header";
 import { KHTScale } from "@/src/components/KHTScale";
 import { ParameterTable, paramRows } from "@/src/components/ParameterTable";
@@ -35,6 +35,9 @@ export default function Result() {
     if (!test) return;
     setExporting(true);
     try {
+      // Embed the original uploaded photo as a base64 data URI so it always
+      // renders inside the downloaded PDF (remote URLs can fail to load).
+      const imgSrc = (await imageToDataUri(fileUrl(test.image_path))) || fileUrl(test.image_path);
       const rows = paramRows(test.parameters)
         .map((r) => `<tr><td>${r.label}</td><td style="text-align:right;font-weight:bold">${r.value}</td></tr>`)
         .join("");
@@ -58,7 +61,8 @@ export default function Result() {
             &nbsp;&nbsp;<span class="badge">${test.status}</span>
             <div style="color:#64748b;font-size:13px">${test.performance} · Confidence ${test.confidence.toFixed(1)}% · ${test.deposit_level_label}</div>
           </div>
-          <img src="${fileUrl(test.image_path)}" />
+          <img src="${imgSrc}" />
+          <div style="color:#64748b;font-size:11px;margin-top:4px">Original sample photo — ${test.meta.sample_id}</div>
           <div class="card"><b>AI Summary</b><p style="font-size:13px;color:#374151">${test.ai_summary || "-"}</p></div>
           <div class="card"><b>Parameter Analysis</b><table>${rows}</table></div>
           <div class="card"><b>Test Information</b><table>

@@ -1,0 +1,39 @@
+{
+  "summary": "Bug-fix verification round for KHT AI Vision app. BUG FIX 1 (upload+analyze pipeline) verified end-to-end: POST /api/upload with a real synthetic tube JPEG returns {image_path}; POST /api/analyze with that path + metadata returns a valid TestRecord (rating 0-10, PASS/FAIL, all parameters populated by Gemini 3.1 Pro Vision) and it is persisted (found in GET /api/tests). BUG FIX 2 (PDF original photo embed): GET /api/files/{path} returns the uploaded image bytes with content-type image/jpeg (valid JPEG SOI header 0xFFD8FF, 6.7KB) so imageToDataUri() has real content to base64-embed inside the exported HTML/PDF. On the Result screen both the header Export icon (testID=export-pdf) and the bottom 'EXPORT PDF REPORT' button (testID=export-report-btn) are present, visible, and pressable; clicking them triggers exportPdf() with no JavaScript exceptions or console errors. Regression: Dashboard, History (search + All/Pass/Fail chips), Trend chart (now renders <polyline> + 13 data-point <circle>s -- previous empty-chart bug is fixed), Settings modal (Default Test Condition, AI Vision Model = Gemini 3.1 Pro Vision, KHT Standard Rating Reference) all render and navigate correctly on 390x844 mobile viewport. Backend pytest: 12 passed, 1 skipped, 1 pre-existing race-condition failure in the ordering of dashboard test vs analyze test under pytest-xdist (not a product bug -- see rca_of_issue). Deprecated packages detected: none. SafeAreaView issues detected: none. Red-screen errors: none.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/dashboard (test suite only)", "issue": "test_dashboard_returns_latest_seed asserts latest.meta.sample_id == 'KHT-2026-07-30-001', but under pytest-xdist with 2 workers the analyze-pipeline test on gw1 inserts TEST_AI_INTEGRATION_001 before the dashboard test runs on the same worker. The delete cleanup runs on gw0 (which skips because analyzed_id lives in gw1's process), so at assertion time the newest record is still TEST_AI_INTEGRATION_001. Product endpoint is correct -- this is a test-ordering / cross-worker fixture issue. Suggested fix: make the delete run on the same worker as analyze (same class), or scope xdist with --dist=loadfile so analyze+delete share worker with dashboard, or move dashboard test to run before uploads via pytest_order."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional test-only) Fix backend_test.py so TestDelete.test_delete_soft_deletes runs on the same xdist worker as TestAnalyzePipeline (they currently share `pytest.analyzed_id` via module attribute, which is per-process). Either move delete into TestAnalyzePipeline as the final method or use --dist=loadfile. This will also make the dashboard-latest assertion deterministic.",
+    "(Optional) Clean up leftover TEST_ / manual-run test records from MongoDB so the Dashboard shows the seeded KHT-2026-07-30-001 as latest again. Currently the newest visible record on the dashboard is 'wz 260198' rating 5.0 FAIL, left over from earlier manual testing."
+  ],
+  "critical_code_review_comments": [
+    "api.ts uploadImage native path: FileSystem.copyAsync fallback catches all errors and reuses the raw uri -- if copy fails, the subsequent multipart POST will likely still fail on ph:// or content://. Consider surfacing a clearer error rather than a generic 'Upload failed: 400'.",
+    "api.ts imageToDataUri: FileReader is available on web and on RN with the polyfill from React Native, but not universally on Hermes without extra polyfills. Since the current call path is invoked from expo-print on web, this is fine, but on native the base64 embed will fail silently and fall back to the remote URL (which is acceptable given the try/catch returns null).",
+    "server.py still uses @app.on_event('startup')/'shutdown' -- deprecated in modern FastAPI; migrate to a lifespan context manager (non-blocking).",
+    "server.py get_object retry-on-503 handles GET only; PUT (put_object) would fail permanently after a key rotation. Low risk."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "92% (12/13 pytest; 1 skipped due to xdist worker split; 1 failing assertion is a test-ordering artifact, not a product bug). Direct curl verification of both bug-fix code paths: 100%.",
+    "frontend": "100% (all 5 tested screens work; Trend chart bug from iteration_1 is now fixed and confirmed rendering polyline + 13 circles)"
+  },
+  "seed_data_creation": "Created one TEST_AI_INTEGRATION_001 record via /api/upload + real Gemini /api/analyze; soft-deleted at end of run. Additionally one leftover throwaway upload was made during the curl verification for /api/files (image_path only, no test record).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Both targeted bug fixes are working: (1) upload -> analyze -> persist pipeline works end-to-end with real Gemini 3.1 Pro Vision on a synthetic tube JPEG per /app/image_testing.md; (2) /api/files/{path} returns real image bytes with image content-type, so imageToDataUri can embed the original photo inside the exported PDF. Result screen exposes testID=export-pdf (header icon) and testID=export-report-btn (bottom button); both are pressable without JS errors on web. The Trend line chart from the previous iteration is fully fixed -- <polyline> and 13 <circle> data points render inside the KHT RATING TREND card. Remaining minor item is a pytest-xdist ordering artifact in test_dashboard_returns_latest_seed, not a product bug.",
+  "rca_of_issue": "test_dashboard_returns_latest_seed failure RCA: pytest-xdist runs with 2 workers. TestAnalyzePipeline (upload+analyze) is dispatched to gw1 and inserts a record with sample_id=TEST_AI_INTEGRATION_001; this becomes the DB's newest record. TestDelete depends on pytest.analyzed_id which is set on gw1 but TestDelete.test_delete_soft_deletes was scheduled on gw0 where analyzed_id doesn't exist -> pytest.skip. Consequently the TEST record is never deleted before TestDashboard.test_dashboard_returns_latest_seed runs on gw1 and asserts latest.sample_id == 'KHT-2026-07-30-001'. Reproduction: run `pytest /app/backend/tests/backend_test.py -n 2`. Mitigation options: (a) collapse TestDelete's delete step into the last method of TestAnalyzePipeline so upload+analyze+delete share a worker, (b) run with `--dist=loadfile` / `-n 0` so ordering is deterministic, or (c) at the start of test_dashboard_returns_latest_seed pre-purge any sample_id starting with 'TEST_'. Endpoint behaviour is correct."
+}

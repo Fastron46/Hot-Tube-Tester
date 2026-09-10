@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import * as FileSystem from "expo-file-system/legacy";
 import { Platform } from "react-native";
 
 export const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -88,21 +89,53 @@ export function useTrend() {
 }
 
 export async function uploadImage(uri: string): Promise<string> {
-  const name = uri.split("/").pop() || "photo.jpg";
-  const extMatch = name.split(".").pop()?.toLowerCase();
-  const ext = extMatch === "png" ? "png" : "jpg";
-  const type = `image/${ext === "png" ? "png" : "jpeg"}`;
+  const clean = uri.split("?")[0].toLowerCase();
+  const ext = clean.endsWith(".png") ? "png" : "jpg";
+  const name = `tube_${Date.now()}.${ext}`;
+  const type = ext === "png" ? "image/png" : "image/jpeg";
   const form = new FormData();
+
   if (Platform.OS === "web") {
+    // Web: turn the (blob:/data:) uri into a real Blob before appending.
     const blob = await (await fetch(uri)).blob();
     form.append("file", blob, name);
   } else {
-    form.append("file", { uri, name, type } as any);
+    // Native: multipart needs a valid file:// path. ImagePicker can hand back
+    // ph:// (iOS Photos) or content:// (Android) URIs that fail on upload, so
+    // copy the asset into the cache dir first to guarantee a file:// path.
+    let localUri = uri;
+    if (!uri.startsWith("file://")) {
+      const dest = `${FileSystem.cacheDirectory}${name}`;
+      try {
+        await FileSystem.copyAsync({ from: uri, to: dest });
+        localUri = dest;
+      } catch {
+        // fall back to original uri if copy is not possible
+        localUri = uri;
+      }
+    }
+    form.append("file", { uri: localUri, name, type } as any);
   }
   const res = await fetch(`${API}/upload`, { method: "POST", body: form });
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
   const data = await res.json();
   return data.image_path as string;
+}
+
+// Fetch an image URL and return a base64 data URI (used to embed the original
+// photo directly inside the exported PDF report).
+export async function imageToDataUri(url: string): Promise<string | null> {
+  try {
+    const blob = await (await fetch(url)).blob();
+    return await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onerror = () => reject(fr.error);
+      fr.onload = () => resolve(fr.result as string);
+      fr.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
 }
 
 export type AnalyzePayload = Partial<TestMeta> & { image_path: string };
