@@ -28,8 +28,7 @@
 5. Rating trend chart over time.
 6. Export a formatted PDF report and share.
 
-## Implemented (2026-06-09)
-- Backend endpoints: `/api/dashboard`, `/api/tests` (+search), `/api/tests/{id}`, `/api/analyze`, `/api/upload`, `/api/files/{path}`, `/api/trend`, `DELETE /api/tests/{id}` (soft delete). 13/13 backend tests passing.
+## Implemented (2026-06-09)- Backend endpoints: `/api/dashboard`, `/api/tests` (+search), `/api/tests/{id}`, `/api/analyze`, `/api/upload`, `/api/files/{path}`, `/api/trend`, `DELETE /api/tests/{id}` (soft delete). 13/13 backend tests passing.
 - Real Gemini 3.1 Pro vision analysis pipeline (upload → object storage → base64 → structured JSON → persist).
 - 4 auto-seeded demo records (ratings 8.7, 6.2, 9.4, 4.1).
 - Dashboard (rating gauge, PASS badge, KHT scale, stats, parameter table, test info, full reference).
@@ -38,6 +37,11 @@
 - History (search + Pass/Fail chips + record rows).
 - Trend (SVG line chart with PASS threshold + data-point list).
 - Settings modal (default conditions, model info, KHT reference detail).
+
+### Update (2026-06-10)
+- Native upload fix: `uploadImage` uses `FileSystem.uploadAsync` (multipart) on native (fixes "unsupported FormData part implementation" on device); web keeps FormData+Blob.
+- PDF report now embeds the ORIGINAL uploaded photo as a base64 data URI (via `imageToDataUri`).
+- **Manual Crop editor** (`src/components/CropEditor.tsx`): after picking a photo, a full-screen editor with a draggable/resizable crop box (corner handles + rule-of-thirds) lets the operator frame only the tube and ignore glare/background. Only the cropped JPEG (expo-image-manipulator) is uploaded to the AI. "Use Full Image" and re-crop supported. Verified (16/16 backend, code review OK).
 
 ## Backlog / Remaining
 - **P1**: Live camera preview / IP-webcam capture mode; auto-crop tube ROI before analysis.

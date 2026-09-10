@@ -1,0 +1,35 @@
+{
+  "summary": "NEW-FEATURE verification round for the client-side manual crop editor. Backend is unchanged since iteration_3 and the cropper simply produces a smaller JPEG that flows through the already-verified /api/upload -> /api/analyze pipeline, so verification is a mix of (a) deep code review of CropEditor.tsx + new-test.tsx and (b) a backend pipeline regression with a cropped-style vertical JPEG (256x512, real deposit features) and (c) a headless render/console check of /new-test (native picker cannot be automated on web). CODE REVIEW: CropEditor math is correct — displayed size uses aspect-fit inside the on-screen container; scale = orig.w / disp.w; originX/originY/width/height are all clamped to image bounds (0..orig.w-1, 0..orig.w-originX, etc.); expo-image-manipulator crop is awaited and result.uri is handed to onDone; USE FULL IMAGE bypasses cropping and returns the original uri; on crop failure it gracefully falls back to the original uri. new-test.tsx correctly wires openCropper -> setRawImage+setShowCrop, and CropEditor.onDone -> setImageUri+setShowCrop(false); the 'Crop' re-crop button reopens the modal using rawImage; only the resulting imageUri is uploaded. rectRef is refreshed on every setRect so PanResponder never sees stale state. RENDER CHECK: /new-test loaded on mobile viewport (375x667), CAMERA/GALLERY/RUN/Sample ID all present, sample id auto-generated as KHT-2026-09-10-348, zero console errors, crop-frame correctly absent until an image is picked, tapping CAMERA did not crash. BACKEND REGRESSION: pytest 16/16 passed in 27.4s (2-worker xdist). /api/upload accepts a cropped-style JPEG (256x512, non-uniform, real tube+deposit rendering) and returns image_path; /api/analyze runs real Gemini 3.1 Pro Vision and returns a valid TestRecord (rating 0-10, PASS/FAIL, all 10 parameters, meta round-tripped); record is persisted and returned by /api/tests?q= and /api/tests/{id}; DELETE soft-deletes and subsequent GET returns 404. Native-shape multipart upload (expo FileSystem.uploadAsync wire format) still accepted and /api/files/{path} still serves image/jpeg with the correct SOI header. Light regression on /api/dashboard, /api/trend, seeded sample KHT-2026-07-30-001 all pass. Deprecated packages detected: none. React Native red screen: none.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "CropEditor.tsx: ExpoImage uses contentFit='fill' with a manually aspect-fit (dw/dh) container. Because dw/dh already match the image aspect ratio, 'fill' == 'contain' in practice, so the math is correct. Consider switching to contentFit='contain' for clarity — non-functional.",
+    "CropEditor.tsx PanResponder 'move' handler clamps within the displayed image bounds (0..dw-s.w, 0..dh-s.h), matching the coordinate system used by applyCrop's scale = orig.w / disp.w. Confirmed origin/size clamps in applyCrop mirror the image bounds. LGTM.",
+    "new-test.tsx: on successful analysis the screen resets imageUri but does NOT clear rawImage/showCrop. Harmless (modal is closed by onDone) but rawImage lingers in memory until the next pick — main agent may want to setRawImage(null) after router.push for tidiness.",
+    "server.py still uses deprecated @app.on_event('startup')/'shutdown' hooks; migrate to lifespan context manager. Non-blocking.",
+    "api.ts uploadImage native path swallows FileSystem.copyAsync errors; a ph://content:// origin that fails to copy will produce a generic 'Upload failed: 400'. Surface a clearer error message."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (16/16 passed)",
+    "frontend": "Render/console check passed; native crop UX cannot be exercised in web preview (file picker is OS-level)"
+  },
+  "seed_data_creation": "One TEST_AI_INTEGRATION_001 record created via real Gemini /api/analyze and soft-deleted in the same test class. One raw upload for /api/files verification (no test record). No lingering test data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "CropEditor is a self-contained React Native Modal — the whole crop UX (drag frame, resize via 4 corner handles, USE CROP running expo-image-manipulator, USE FULL IMAGE returning original uri) can only be exercised on a real device / Expo Go, not in the web preview because ImagePicker.launchCamera/Library never returns an asset on web. Backend contract is unchanged. If E1 wants deeper verification, run on a physical device and confirm: (1) after picking a photo the CropEditor modal opens full-screen, (2) dragging the frame and corner handles keeps the rect inside the image, (3) USE CROP produces a smaller JPEG (verify by inspecting result.uri size), (4) the resulting URI uploads and analyzes cleanly. All testIDs are present: crop-frame, crop-handle-tl/tr/bl/br, crop-cancel, crop-use-full, crop-done, recrop.",
+  "rca_of_issue": "N/A — no bugs found. New CropEditor feature is correctly integrated and the backend pipeline accepts the smaller cropped JPEGs it will produce."
+}

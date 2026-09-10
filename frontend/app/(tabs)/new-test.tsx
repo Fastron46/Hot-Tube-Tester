@@ -1,13 +1,14 @@
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
-import { Camera, ImageSquare, Sparkle } from "phosphor-react-native";
+import { Camera, Crop, ImageSquare, Sparkle } from "phosphor-react-native";
 import { useState } from "react";
 import { ActivityIndicator, Linking, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AnalyzePayload, uploadImage, useAnalyze } from "@/src/api";
+import { CropEditor } from "@/src/components/CropEditor";
 import { Header } from "@/src/components/Header";
 import { useToast } from "@/src/components/Toast";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
@@ -28,6 +29,8 @@ export default function NewTest() {
   const analyze = useAnalyze();
 
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [rawImage, setRawImage] = useState<{ uri: string; width?: number; height?: number } | null>(null);
+  const [showCrop, setShowCrop] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState("");
 
@@ -54,8 +57,8 @@ export default function NewTest() {
           Linking.openSettings?.();
           return;
         }
-        const res = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.7 });
-        if (!res.canceled) setImageUri(res.assets[0].uri);
+        const res = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.9 });
+        if (!res.canceled) openCropper(res.assets[0]);
       } else {
         const cur = await ImagePicker.getMediaLibraryPermissionsAsync();
         let status = cur.status;
@@ -67,13 +70,19 @@ export default function NewTest() {
           Linking.openSettings?.();
           return;
         }
-        const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.7 });
-        if (!res.canceled) setImageUri(res.assets[0].uri);
+        const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
+        if (!res.canceled) openCropper(res.assets[0]);
       }
     } catch (e) {
       toast("Could not open image source.", "error");
     }
   }
+
+  function openCropper(asset: ImagePicker.ImagePickerAsset) {
+    setRawImage({ uri: asset.uri, width: asset.width, height: asset.height });
+    setShowCrop(true);
+  }
+
 
   async function runAnalysis() {
     if (!imageUri) {
@@ -122,7 +131,19 @@ export default function NewTest() {
         {imageUri ? (
           <View style={styles.previewWrap}>
             <Image source={{ uri: imageUri }} style={styles.preview} contentFit="cover" />
+            <View style={styles.cropTag}>
+              <Crop size={11} color={colors.onBrandPrimary} weight="bold" />
+              <Text style={styles.cropTagText}>CROPPED FOR AI</Text>
+            </View>
             <View style={styles.previewActions}>
+              <Pressable
+                style={styles.smallBtn}
+                onPress={() => rawImage && setShowCrop(true)}
+                testID="recrop"
+              >
+                <Crop size={16} color={colors.onSurface} />
+                <Text style={styles.smallBtnText}>Crop</Text>
+              </Pressable>
               <Pressable style={styles.smallBtn} onPress={() => pickImage("camera")} testID="retake-camera">
                 <Camera size={16} color={colors.onSurface} />
                 <Text style={styles.smallBtnText}>Retake</Text>
@@ -191,6 +212,18 @@ export default function NewTest() {
           </Pressable>
         </View>
       </KeyboardStickyView>
+
+      <CropEditor
+        visible={showCrop}
+        uri={rawImage?.uri ?? null}
+        originalWidth={rawImage?.width}
+        originalHeight={rawImage?.height}
+        onCancel={() => setShowCrop(false)}
+        onDone={(uri) => {
+          setImageUri(uri);
+          setShowCrop(false);
+        }}
+      />
     </View>
   );
 }
@@ -261,6 +294,19 @@ const useStyles = makeStyles((c) => ({
 
   previewWrap: { borderRadius: radius.lg, overflow: "hidden", borderWidth: 1, borderColor: c.brandPrimary },
   preview: { width: "100%", height: 180, backgroundColor: c.surfaceTertiary },
+  cropTag: {
+    position: "absolute",
+    top: spacing.sm,
+    left: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: c.brandPrimary,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.sm,
+  },
+  cropTagText: { fontFamily: fonts.monoBold, fontSize: 9, color: c.onBrandPrimary, letterSpacing: 1 },
   previewActions: {
     flexDirection: "row",
     gap: spacing.sm,
