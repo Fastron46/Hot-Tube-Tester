@@ -78,12 +78,21 @@ class TestDashboard:
         assert data["total"] >= 4, f"expected at least 4 seeded, got {data['total']}"
         assert data["latest"] is not None
         latest = data["latest"]
-        # Seeded latest sample per problem statement
-        assert latest["meta"]["sample_id"] == "KHT-2026-07-30-001"
-        assert latest["rating"] == 8.7
-        assert latest["status"] == "PASS"
+        # Latest must at least be a well-formed record
+        assert "meta" in latest and latest["meta"].get("sample_id")
+        assert 0 <= latest["rating"] <= 10
+        assert latest["status"] in ("PASS", "FAIL")
         # totals sanity
         assert data["passed"] + data["failed"] == data["total"]
+
+    def test_seeded_sample_still_present(self, api_client):
+        r = api_client.get(f"{API}/tests", params={"q": "KHT-2026-07-30-001"}, timeout=30)
+        assert r.status_code == 200
+        rows = r.json()
+        assert len(rows) >= 1
+        rec = rows[0]
+        assert rec["rating"] == 8.7
+        assert rec["status"] == "PASS"
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +156,50 @@ class TestTrend:
 
 
 # ---------------------------------------------------------------------------
+# Native multipart shape verification (mimics expo FileSystem.uploadAsync)
+# ---------------------------------------------------------------------------
+class TestNativeStyleMultipartUpload:
+    """expo-file-system FileSystem.uploadAsync sends a bare multipart/form-data
+    body with a single part whose name is exactly the configured `fieldName`
+    ('file' per api.ts). This class exercises that exact shape without letting
+    `requests` add any extra parts, then verifies /api/files/{path} serves the
+    same bytes back with an image content-type.
+    """
+
+    def test_upload_accepts_expo_native_multipart(self, api_client):
+        # Bare, hand-crafted multipart body exactly like FileSystem.uploadAsync
+        boundary = "----ExpoFileSystemBoundary" + base64.b32encode(os.urandom(6)).decode().rstrip("=")
+        body = (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file"; filename="photo.jpg"\r\n'
+            f"Content-Type: image/jpeg\r\n\r\n"
+        ).encode("utf-8") + TEST_IMAGE_BYTES + f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+        r = requests.post(
+            f"{API}/upload",
+            data=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            timeout=120,
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "image_path" in data and data["image_path"], data
+        pytest.native_image_path = data["image_path"]
+
+    def test_files_endpoint_returns_image_bytes(self, api_client):
+        path = getattr(pytest, "native_image_path", None)
+        if not path:
+            pytest.skip("upload didn't run")
+        r = api_client.get(f"{API}/files/{path}", timeout=30)
+        assert r.status_code == 200, r.text
+        ct = r.headers.get("Content-Type", "")
+        assert ct.startswith("image/"), f"expected image/*, got {ct}"
+        assert len(r.content) > 200, "file body too small"
+        # JPEG SOI header
+        assert r.content[:3] == b"\xff\xd8\xff", "not a JPEG"
+
+
+# ---------------------------------------------------------------------------
 # Upload -> Analyze pipeline (real AI)
 # ---------------------------------------------------------------------------
 class TestAnalyzePipeline:
@@ -207,27 +260,26 @@ class TestAnalyzePipeline:
         assert r2.status_code == 200
         assert any(x["id"] == tid for x in r2.json())
 
-
-# ---------------------------------------------------------------------------
-# Delete (soft)
-# ---------------------------------------------------------------------------
-class TestDelete:
-    def test_delete_soft_deletes(self, api_client):
+    def test_zz_soft_delete_analyzed_record(self, api_client):
+        """Kept inside this class so it runs on the same xdist worker as the
+        upload/analyze steps that populate pytest.analyzed_id."""
         tid = getattr(pytest, "analyzed_id", None)
         if not tid:
-            # fallback: create a throwaway via upload+analyze isn't guaranteed;
-            # instead skip if analyze test didn't run
             pytest.skip("no analyzed_id from analyze test")
         r = api_client.delete(f"{API}/tests/{tid}", timeout=30)
         assert r.status_code == 200
-        # subsequent GET should 404
         r2 = api_client.get(f"{API}/tests/{tid}", timeout=30)
         assert r2.status_code == 404
-        # and shouldn't appear in list
         r3 = api_client.get(f"{API}/tests", params={"q": "TEST_AI_INTEGRATION_001"}, timeout=30)
         assert r3.status_code == 200
         assert not any(x["id"] == tid for x in r3.json())
 
+
+# ---------------------------------------------------------------------------
+# Delete (soft) - invalid id only; the main analyze->delete flow is now
+# inside TestAnalyzePipeline so it shares a pytest-xdist worker.
+# ---------------------------------------------------------------------------
+class TestDelete:
     def test_delete_invalid_id_returns_404(self, api_client):
         r = api_client.delete(f"{API}/tests/does-not-exist-xyz", timeout=30)
         assert r.status_code == 404

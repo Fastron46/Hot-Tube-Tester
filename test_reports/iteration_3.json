@@ -1,0 +1,35 @@
+{
+  "summary": "Bug-fix verification round (native FormData -> FileSystem.uploadAsync switch). The only frontend change was in api.ts uploadImage() and cannot be exercised headlessly, so backend was verified to still accept the exact wire shape that expo-file-system FileSystem.uploadAsync produces: a bare multipart/form-data POST with a single part named 'file'. Added TestNativeStyleMultipartUpload which hand-crafts the body (not letting requests add extra parts) and posts to /api/upload — returns 200 + {image_path}. Then GET /api/files/{path} returns the exact bytes with Content-Type: image/jpeg and a valid JPEG SOI header. Full pipeline (upload -> analyze via Gemini 3.1 Pro Vision -> persist in /api/tests -> soft-delete) passes end-to-end with a real synthetic tube JPEG (256x512, non-uniform, real deposit band). Light regression: /api/dashboard, /api/tests (+?q= search on sample_id and operator), /api/tests/{id}, /api/trend, DELETE /api/tests/{id} (valid + invalid) all pass. Fixed prior test-only issues: (a) moved soft-delete into TestAnalyzePipeline so upload+analyze+delete share the same pytest-xdist worker; (b) relaxed test_dashboard_returns_latest_seed since real user-created records (KHT-2026-09-10-*) now legitimately sit above the seed as newest — assertion now validates structure and totals; added a separate test_seeded_sample_still_present that queries specifically for KHT-2026-07-30-001. Pytest: 16 passed, 0 failed, 0 skipped in 30.83s (2-worker xdist). Deprecated packages detected: none in backend. Red-screen errors: N/A (backend-only run).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py still uses deprecated @app.on_event('startup') / 'shutdown' — modern FastAPI recommends a lifespan context manager. Non-blocking.",
+    "server.py put_object has no 503 key-rotation retry (get_object does). Low-risk for now since init_storage runs once at startup, but a stale key after long-running processes would cause permanent PUT failures.",
+    "api.ts uploadImage native path swallows FileSystem.copyAsync errors and reuses raw uri; if copy fails on ph:// / content:// origins, the subsequent multipart POST will likely still fail. Consider surfacing a clearer error rather than the generic 'Upload failed: 400'. Also verify FileSystem.uploadAsync is still exported from the SDK version in use (SDK 54+ moved it to expo-file-system/legacy — main agent's fix already targets the legacy path per problem statement)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {
+    "backend": "100% (16/16 passed)",
+    "frontend": "not tested (backend-only round per review request)"
+  },
+  "seed_data_creation": "One TEST_AI_INTEGRATION_001 record created via real Gemini /api/analyze and soft-deleted inside the same class. One raw upload created via TestNativeStyleMultipartUpload for /api/files verification (no test record). Also purged 3 stale non-seed records from earlier iterations to keep DB tidy; legitimate user-created KHT-2026-09-10-* records left intact.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend fully verified. The native multipart shape produced by expo-file-system FileSystem.uploadAsync (single part with name='file', Content-Type: image/jpeg, boundary-delimited body) is accepted by /api/upload and works through the entire analyze pipeline. /api/files/{path} returns image bytes with image/* content-type. To verify the actual frontend fix, run the app on a physical device (native fix cannot be exercised in web preview) — the change is in /app/frontend/src/api.ts uploadImage() where NATIVE platform now uses FileSystem.uploadAsync (MULTIPART, fieldName='file') after copying the asset into FileSystem.cacheDirectory for a valid file:// path; web still uses FormData+Blob.",
+  "rca_of_issue": "N/A — no bugs found this round. Bug from the fix note (React Native new-architecture rejecting FormData parts of shape {uri,name,type} with 'unsupported FormData part implementation') is a purely client-side issue on native RN; the backend contract is unchanged and confirmed compatible with the replacement transport (FileSystem.uploadAsync)."
+}

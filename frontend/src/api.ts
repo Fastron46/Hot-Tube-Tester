@@ -93,33 +93,41 @@ export async function uploadImage(uri: string): Promise<string> {
   const ext = clean.endsWith(".png") ? "png" : "jpg";
   const name = `tube_${Date.now()}.${ext}`;
   const type = ext === "png" ? "image/png" : "image/jpeg";
-  const form = new FormData();
 
   if (Platform.OS === "web") {
     // Web: turn the (blob:/data:) uri into a real Blob before appending.
+    const form = new FormData();
     const blob = await (await fetch(uri)).blob();
     form.append("file", blob, name);
-  } else {
-    // Native: multipart needs a valid file:// path. ImagePicker can hand back
-    // ph:// (iOS Photos) or content:// (Android) URIs that fail on upload, so
-    // copy the asset into the cache dir first to guarantee a file:// path.
-    let localUri = uri;
-    if (!uri.startsWith("file://")) {
-      const dest = `${FileSystem.cacheDirectory}${name}`;
-      try {
-        await FileSystem.copyAsync({ from: uri, to: dest });
-        localUri = dest;
-      } catch {
-        // fall back to original uri if copy is not possible
-        localUri = uri;
-      }
-    }
-    form.append("file", { uri: localUri, name, type } as any);
+    const res = await fetch(`${API}/upload`, { method: "POST", body: form });
+    if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+    return ((await res.json()) as { image_path: string }).image_path;
   }
-  const res = await fetch(`${API}/upload`, { method: "POST", body: form });
-  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-  const data = await res.json();
-  return data.image_path as string;
+
+  // Native: React Native's FormData rejects file parts on new-architecture
+  // builds ("unsupported FormData part implementation"). Use FileSystem's
+  // native multipart uploader instead — it streams a real file:// path and
+  // never touches the JS FormData polyfill. ImagePicker can hand back ph://
+  // (iOS) or content:// (Android) uris, so copy into cache first for a valid
+  // file:// path.
+  let localUri = uri;
+  const dest = `${FileSystem.cacheDirectory}${name}`;
+  try {
+    await FileSystem.copyAsync({ from: uri, to: dest });
+    localUri = dest;
+  } catch {
+    localUri = uri;
+  }
+  const result = await FileSystem.uploadAsync(`${API}/upload`, localUri, {
+    httpMethod: "POST",
+    uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+    fieldName: "file",
+    mimeType: type,
+  });
+  if (result.status < 200 || result.status >= 300) {
+    throw new Error(`Upload failed: ${result.status} ${result.body ?? ""}`.trim());
+  }
+  return (JSON.parse(result.body) as { image_path: string }).image_path;
 }
 
 // Fetch an image URL and return a base64 data URI (used to embed the original
