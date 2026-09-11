@@ -43,6 +43,11 @@
 - PDF report now embeds the ORIGINAL uploaded photo as a base64 data URI (via `imageToDataUri`).
 - **Manual Crop editor** (`src/components/CropEditor.tsx`): after picking a photo, a full-screen editor with a draggable/resizable crop box (corner handles + rule-of-thirds) lets the operator frame only the tube and ignore glare/background. Only the cropped JPEG (expo-image-manipulator) is uploaded to the AI. "Use Full Image" and re-crop supported. Verified (16/16 backend, code review OK).
 
+### Update (2026-06-11)
+- **Custom camera** (`src/components/CameraCapture.tsx`, expo-camera): full-screen preview (correct aspect, no forced zoom), pinch-to-zoom + −/+ zoom bar with `x` indicator, flip, flash, full permission handling; shutter captures at `quality:1` (high-res). New Test "CAMERA" opens this instead of the OS camera.
+- Crop output raised to `compress:0.95` and gallery picker to `quality:1` for high-resolution detail.
+- AI prompt updated: rates ONLY the cropped region, ignores glare/background, and returns `summary` as a short **Bahasa Indonesia** justification citing deposit severity + location (e.g. "Endapan menengah di tengah tabung memicu rating 5.5."). Verified 16/16 backend + render checks.
+
 ## Backlog / Remaining
 - **P1**: Live camera preview / IP-webcam capture mode; auto-crop tube ROI before analysis.
 - **P1**: Side-by-side Original vs Heatmap comparison view.

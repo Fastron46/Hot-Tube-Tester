@@ -151,7 +151,7 @@ export function CropEditor({
       const width = clamp(Math.round(rect.w * scale), 1, orig.w - originX);
       const height = clamp(Math.round(rect.h * scale), 1, orig.h - originY);
       const result = await manipulateAsync(uri, [{ crop: { originX, originY, width, height } }], {
-        compress: 0.85,
+        compress: 0.95,
         format: SaveFormat.JPEG,
       });
       onDone(result.uri);

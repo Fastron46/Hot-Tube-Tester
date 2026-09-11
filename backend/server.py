@@ -157,12 +157,15 @@ RATING_REFERENCE = """KHT (Komatsu Hot Tube Tester) standard deposit rating scal
 PASS if rating >= 7, otherwise FAIL."""
 
 ANALYSIS_PROMPT = f"""You are the KHT-AI-V2 deposit rating engine for a Komatsu Hot Tube Tester (HTT).
-Analyze the attached photograph of a glass test tube used in a hot tube oxidation/deposit test.
-Rate the carbon / lacquer / varnish deposit visible inside the tube.
+The attached photograph has ALREADY been cropped by the operator to show only the region of the
+glass test tube that must be rated. Analyze ONLY what is visible in this cropped image and rate the
+carbon / lacquer / varnish deposit inside the tube.
 
 {RATING_REFERENCE}
 
-Assess the deposit by its darkness, coverage along the tube, and color (using approximate CIE L*a*b* where L* is lightness 0-100, a* red-green, b* yellow-blue; heavier deposits are darker/lower L*, more red/brown, higher a*/b*).
+Assess the deposit by its darkness, coverage along the visible tube region, and color (using
+approximate CIE L*a*b* where L* is lightness 0-100, a* red-green, b* yellow-blue; heavier deposits are
+darker/lower L*, more red/brown, higher a*/b*). Ignore glass reflections/glare and any background.
 
 Return ONLY a valid minified JSON object (no markdown, no explanation) with EXACTLY these keys:
 {{
@@ -181,7 +184,7 @@ Return ONLY a valid minified JSON object (no markdown, no explanation) with EXAC
  "thickness_index_mm": <number, estimated>,
  "deposit_start_mm": <number 0-300>,
  "deposit_end_mm": <number 0-300>,
- "summary": <one concise sentence describing the deposit>
+ "summary": <one short sentence in BAHASA INDONESIA that JUSTIFIES the rating, mentioning the deposit level/severity and WHERE on the tube it appears, e.g. "Terdeteksi endapan karbon level menengah di area tengah tabung sehingga diberi rating 6.">
 }}"""
 
 

@@ -247,7 +247,12 @@ class TestAnalyzePipeline:
         ):
             assert k in params
         assert rec["meta"]["sample_id"] == "TEST_AI_INTEGRATION_001"
+        # New: AI justification (Bahasa Indonesia) must be non-empty sentence
+        assert "ai_summary" in rec, rec
+        summary = (rec.get("ai_summary") or "").strip()
+        assert len(summary) >= 10, f"ai_summary too short/empty: {summary!r}"
         pytest.analyzed_id = rec["id"]
+        pytest.analyzed_summary = summary
 
     def test_analyzed_record_persisted(self, api_client):
         tid = getattr(pytest, "analyzed_id", None)

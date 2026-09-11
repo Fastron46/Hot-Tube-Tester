@@ -8,6 +8,7 @@ import { KeyboardAwareScrollView, KeyboardStickyView } from "react-native-keyboa
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AnalyzePayload, uploadImage, useAnalyze } from "@/src/api";
+import { CameraCapture } from "@/src/components/CameraCapture";
 import { CropEditor } from "@/src/components/CropEditor";
 import { Header } from "@/src/components/Header";
 import { useToast } from "@/src/components/Toast";
@@ -31,6 +32,7 @@ export default function NewTest() {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [rawImage, setRawImage] = useState<{ uri: string; width?: number; height?: number } | null>(null);
   const [showCrop, setShowCrop] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState("");
 
@@ -45,40 +47,29 @@ export default function NewTest() {
   const [remark, setRemark] = useState("");
 
   async function pickImage(source: "camera" | "gallery") {
+    if (source === "camera") {
+      setShowCamera(true);
+      return;
+    }
     try {
-      if (source === "camera") {
-        const cur = await ImagePicker.getCameraPermissionsAsync();
-        let status = cur.status;
-        if (status !== "granted" && cur.canAskAgain) {
-          status = (await ImagePicker.requestCameraPermissionsAsync()).status;
-        }
-        if (status !== "granted") {
-          toast("Camera permission needed. Enable it in Settings.", "error");
-          Linking.openSettings?.();
-          return;
-        }
-        const res = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.9 });
-        if (!res.canceled) openCropper(res.assets[0]);
-      } else {
-        const cur = await ImagePicker.getMediaLibraryPermissionsAsync();
-        let status = cur.status;
-        if (status !== "granted" && cur.canAskAgain) {
-          status = (await ImagePicker.requestMediaLibraryPermissionsAsync()).status;
-        }
-        if (status !== "granted") {
-          toast("Photo library permission needed. Enable it in Settings.", "error");
-          Linking.openSettings?.();
-          return;
-        }
-        const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
-        if (!res.canceled) openCropper(res.assets[0]);
+      const cur = await ImagePicker.getMediaLibraryPermissionsAsync();
+      let status = cur.status;
+      if (status !== "granted" && cur.canAskAgain) {
+        status = (await ImagePicker.requestMediaLibraryPermissionsAsync()).status;
       }
+      if (status !== "granted") {
+        toast("Photo library permission needed. Enable it in Settings.", "error");
+        Linking.openSettings?.();
+        return;
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
+      if (!res.canceled) openCropper(res.assets[0]);
     } catch (e) {
       toast("Could not open image source.", "error");
     }
   }
 
-  function openCropper(asset: ImagePicker.ImagePickerAsset) {
+  function openCropper(asset: { uri: string; width?: number; height?: number }) {
     setRawImage({ uri: asset.uri, width: asset.width, height: asset.height });
     setShowCrop(true);
   }
@@ -212,6 +203,15 @@ export default function NewTest() {
           </Pressable>
         </View>
       </KeyboardStickyView>
+
+      <CameraCapture
+        visible={showCamera}
+        onClose={() => setShowCamera(false)}
+        onCapture={(asset) => {
+          setShowCamera(false);
+          openCropper(asset);
+        }}
+      />
 
       <CropEditor
         visible={showCrop}

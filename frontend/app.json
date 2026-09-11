@@ -51,6 +51,13 @@
           "photosPermission": "Upload tube photos to analyze deposits",
           "cameraPermission": "Capture hot tube photos for AI deposit rating"
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Capture hot tube photos for AI deposit rating",
+          "recordAudioAndroid": false
+        }
       ]
     ],
     "experiments": {
