@@ -31,6 +31,14 @@ db = client[os.environ["DB_NAME"]]
 
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
 
+# Bundled default Nikko COLOR SCALE reference board (0-10)
+REF_FILE = ROOT_DIR / "reference" / "color_scale.jpg"
+
+
+def read_bundled_reference() -> bytes:
+    with open(REF_FILE, "rb") as f:
+        return f.read()
+
 # ---------------------------------------------------------------------------
 # Object storage
 # ---------------------------------------------------------------------------
@@ -143,48 +151,59 @@ api_router = APIRouter(prefix="/api")
 # ---------------------------------------------------------------------------
 # AI Vision analysis
 # ---------------------------------------------------------------------------
-RATING_REFERENCE = """KHT (Komatsu Hot Tube Tester) standard deposit rating scale (0-10):
-10 = 0% deposit (None) -> EXCELLENT
-9  = <5% (Very Slight) -> EXCELLENT
-8  = 5-15% (Slight) -> VERY GOOD
-7  = 15-30% (Light) -> GOOD
-6  = 30-45% (Moderate) -> FAIR
-5  = 45-60% (Moderate Heavy) -> FAIR
-4  = 60-75% (Heavy) -> POOR
-3  = 75-90% (Very Heavy) -> POOR
-2  = 90-100% (Extremely Heavy) -> VERY POOR
-0-1 = 100% (Plugged) -> FAILED
+RATING_REFERENCE = """KHT (Komatsu Hot Tube Tester) standard deposit rating scale (0-10),
+matching the Nikko COLOR SCALE reference board:
+10 = perfectly clear / colorless glass, 0% deposit (None) -> EXCELLENT
+9  = very faint pale yellow, <5% (Very Slight) -> EXCELLENT
+8  = pale yellow, 5-15% (Slight) -> VERY GOOD
+7  = light straw / yellow, 15-30% (Light) -> GOOD
+6  = yellow-amber, 30-45% (Moderate) -> FAIR
+5  = amber / light brown, 45-60% (Moderate Heavy) -> FAIR
+4  = brown, 60-75% (Heavy) -> POOR
+3  = dark brown, 75-90% (Very Heavy) -> POOR
+2  = very dark brown, 90-100% (Extremely Heavy) -> VERY POOR
+1  = near-black brown -> FAILED
+0  = black, 100% (Plugged) -> FAILED
+On the reference board the CLEAR tube = 10 and the BLACK tube = 0.
 PASS if rating >= 7, otherwise FAIL."""
 
 ANALYSIS_PROMPT = f"""You are the KHT-AI-V2 deposit rating engine for a Komatsu Hot Tube Tester (HTT).
-The attached photograph has ALREADY been cropped by the operator to show only the region of the
-glass test tube that must be rated. Analyze ONLY what is visible in this cropped image and rate the
-carbon / lacquer / varnish deposit inside the tube.
+
+You are given TWO images:
+1) The FIRST image is the official Nikko COLOR SCALE reference board. It shows a row of standard
+   test tubes each labelled 0 to 10. The tube that is completely CLEAR/colorless is 10 (best, no
+   deposit) and the tube that is BLACK/darkest is 0 (worst, fully plugged). The tubes between them
+   go clear -> pale yellow -> amber -> brown -> dark brown -> black as the number decreases.
+2) The SECOND image is the SAMPLE tube (already cropped by the operator) that you must rate.
+
+Your task: visually COMPARE the deposit color and darkness of the SAMPLE tube against the reference
+tubes on the COLOR SCALE board, and assign the rating (0-10) of the reference tube whose color it most
+closely matches. Base the rating ONLY on the deposit visible in the sample; ignore glass reflections,
+glare and background.
 
 {RATING_REFERENCE}
 
-Assess the deposit by its darkness, coverage along the visible tube region, and color (using
-approximate CIE L*a*b* where L* is lightness 0-100, a* red-green, b* yellow-blue; heavier deposits are
-darker/lower L*, more red/brown, higher a*/b*). Ignore glass reflections/glare and any background.
+Also estimate the deposit geometry along the sample tube (assume usable length 300mm) and approximate
+CIE L*a*b* (L* lightness 0-100, a* red-green, b* yellow-blue; darker/heavier deposit = lower L*, higher a*/b*).
 
 Return ONLY a valid minified JSON object (no markdown, no explanation) with EXACTLY these keys:
 {{
- "rating": <number 0-10, one decimal>,
+ "rating": <number 0-10, one decimal, matched against the COLOR SCALE board>,
  "performance": <one of "EXCELLENT","VERY GOOD","GOOD","FAIR","POOR","VERY POOR","FAILED">,
  "confidence": <number 0-100>,
  "status": <"PASS" or "FAIL">,
  "deposit_level_label": <short string like "5 - 15% (Slight)">,
  "deposit_area_pct": <number>,
- "deposit_length_mm": <number, assume tube usable length 300mm>,
+ "deposit_length_mm": <number>,
  "deposit_coverage_pct": <number>,
  "avg_intensity_l": <number 0-100>,
  "avg_color_a": <number>,
  "avg_color_b": <number>,
  "max_intensity": <number 0-255>,
- "thickness_index_mm": <number, estimated>,
+ "thickness_index_mm": <number>,
  "deposit_start_mm": <number 0-300>,
  "deposit_end_mm": <number 0-300>,
- "summary": <one short sentence in BAHASA INDONESIA that JUSTIFIES the rating, mentioning the deposit level/severity and WHERE on the tube it appears, e.g. "Terdeteksi endapan karbon level menengah di area tengah tabung sehingga diberi rating 6.">
+ "summary": <one short sentence in BAHASA INDONESIA that JUSTIFIES the rating by referring to which COLOR SCALE band it matches and where the deposit sits, e.g. "Warna endapan cokelat sedang cocok dengan skala 5 pada COLOR SCALE, terlihat di area tengah tabung.">
 }}"""
 
 
