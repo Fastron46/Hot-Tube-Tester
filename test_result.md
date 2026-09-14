@@ -101,3 +101,48 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Import dari GitHub: https://github.com/deniabas/HTT-komatsuApp.git (KHT AI VISION - Komatsu Hot Tube Tester rating app with Gemini AI Vision)."
+
+backend:
+  - task: "KHT AI VISION backend (FastAPI + Mongo + Gemini vision + object storage)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "Imported from GitHub. Reconstructed empty .env files (MONGO_URL, DB_NAME, EMERGENT_LLM_KEY, INTEGRATION_PROXY_URL). Backend boots, seeds 4 demo records, /api/dashboard, /api/tests, /api/trend verified via curl. NOTE: live /api/analyze (Gemini gemini-3.1-pro-preview) not yet exercised with a real image."
+
+frontend:
+  - task: "KHT AI VISION Expo app (dashboard, new test, history, trend, result, settings)"
+    implemented: true
+    working: true
+    file: "frontend/app/(tabs)/index.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "Imported from GitHub. Reconstructed frontend/.env (EXPO_PUBLIC_BACKEND_URL + packager vars). Dashboard renders fully with seeded data (rating gauge 8.7, PASS, stats, KHT reference scale, parameter table) and bottom tabs. Verified via direct Playwright DOM dump + screenshot, no runtime errors."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 0
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Live /api/analyze AI Vision flow (upload -> Gemini -> record) if user requests"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+    -agent: "main"
+    -message: "GitHub import complete. Both services running. Empty protected .env files were reconstructed. Core browsing verified. Awaiting user direction on further testing/enhancements."
