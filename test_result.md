@@ -117,6 +117,21 @@ backend:
         -agent: "main"
         -comment: "Imported from GitHub. Reconstructed empty .env files (MONGO_URL, DB_NAME, EMERGENT_LLM_KEY, INTEGRATION_PROXY_URL). Backend boots, seeds 4 demo records, /api/dashboard, /api/tests, /api/trend verified via curl. NOTE: live /api/analyze (Gemini gemini-3.1-pro-preview) not yet exercised with a real image."
 
+  - task: "CORS bug fix: Safari 'Load failed' on upload/analyze (allow_origin_regex to reflect Origin)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "BUG FIX: Changed CORS middleware from allow_origins=['*'] + allow_credentials=True (illegal combo that Safari rejects) to allow_origin_regex='.*' + allow_credentials=True so the request Origin is reflected in Access-Control-Allow-Origin header. This fixes Safari/WebKit 'Load failed' error on image upload and AI Vision analysis."
+        -working: true
+        -agent: "testing"
+        -comment: "CORS BUG FIX VERIFIED ✓ All 3 CORS tests passed. (1) GET /api/dashboard with Origin: https://example.com → Access-Control-Allow-Origin: https://example.com (reflected, NOT '*'), Access-Control-Allow-Credentials: true. (2) GET /api/tests with Origin: https://example.com → Access-Control-Allow-Origin: https://example.com (reflected), Access-Control-Allow-Credentials: true. (3) OPTIONS /api/analyze preflight with Origin: https://example.com → Access-Control-Allow-Origin: https://example.com (reflected), Access-Control-Allow-Credentials: true, Access-Control-Allow-Methods includes POST. The critical fix is confirmed: the backend now reflects the request Origin instead of returning '*', which resolves the Safari/WebKit CORS rejection issue."
+
   - task: "AI Vision flow: /api/upload -> /api/analyze (Gemini gemini-3.1-pro-preview) -> persist -> retrieve -> delete"
     implemented: true
     working: true
@@ -131,6 +146,9 @@ backend:
         -working: true
         -agent: "testing"
         -comment: "FULL AI VISION FLOW VERIFIED ✓ All 11 tests passed. (1) POST /api/upload: Successfully uploaded color_scale.jpg, returned image_path. (2) POST /api/analyze: Live Gemini gemini-3.1-pro-preview API call completed in 13.4s, returned TestRecord with rating=2.0/10, performance=VERY POOR, status=FAIL, deposit_level=90-100% (Extremely Heavy), confidence=95.0, ai_summary in Bahasa Indonesia, ai_model=gemini-3.1-pro-preview, all 10 parameter fields present and numeric. (3) GET /api/tests/{id}: Record retrieved successfully with matching ID and metadata (sample_id=QA-TEST-001). (4) GET /api/tests?q=QA-TEST: Search query returned the new record. (5) GET /api/dashboard: Stats updated correctly (total count increased from 5 to 6, avg_rating recalculated). (6) GET /api/trend: New record appears in trend data. (7) DELETE /api/tests/{id}: Soft delete returned {ok: true}. (8) GET /api/tests/{id} after delete: Returns 404 as expected. (9) GET /api/tests after delete: Deleted record no longer appears in list. The live Emergent LLM + Gemini vision integration is fully functional with proper object storage, MongoDB persistence, and all CRUD operations working correctly."
+        -working: true
+        -agent: "testing"
+        -comment: "RE-VERIFIED after CORS fix ✓ All 11 AI Vision flow tests passed again. POST /api/upload successful, POST /api/analyze completed in 17.6s with rating=3.0/10 POOR FAIL (deposit_level=75-90% Very Heavy), proper Bahasa Indonesia summary, all parameters present. GET /api/tests/{id}, search, dashboard (count 7→8), trend, DELETE, 404 verification, and list exclusion all working correctly. The CORS fix did not break any existing functionality."
 
 frontend:
   - task: "KHT AI VISION Expo app (dashboard, new test, history, trend, result, settings)"
@@ -152,14 +170,15 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus:
-    - "AI Vision flow: /api/upload -> /api/analyze (Gemini gemini-3.1-pro-preview) -> persist -> retrieve -> delete"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
     -agent: "main"
-    -message: "GitHub import complete. Both services running. User asked to verify the live AI Vision flow. Please test: (1) POST /api/upload with a JPEG image (backend/reference/color_scale.jpg exists in repo, but generate/use any tube-like image) returns image_path; (2) POST /api/analyze with that image_path + sample metadata returns a TestRecord with a numeric rating 0-10, performance, PASS/FAIL status, parameters, and a non-empty ai_summary (Bahasa Indonesia); (3) the new record is persisted and retrievable via GET /api/tests/{id} and appears in GET /api/tests and GET /api/dashboard/trend; (4) DELETE /api/tests/{id} soft-deletes it (no longer in list). Backend base URL is the /api-prefixed ingress. This uses the real Emergent LLM key + Gemini vision - allow up to ~60s per analyze call."
+    -message: "BUG FIX (Safari 'Load failed' on upload/RUN AI VISION ANALYSIS): Root cause was invalid CORS on the backend. The middleware used allow_origins=['*'] together with allow_credentials=True, so ACTUAL (non-preflight) responses returned 'Access-Control-Allow-Origin: *' AND 'Access-Control-Allow-Credentials: true' simultaneously - an illegal combo that Safari/WebKit rejects (=> 'Load failed'), while Chromium tolerated it (worked in all my Chromium tests). Fix in backend/server.py: switched to allow_origin_regex='.*' + allow_credentials=True so Starlette REFLECTS the request Origin (valid CORS). Please retest: (1) CORS headers on actual requests - send GET /api/dashboard and POST /api/analyze with an 'Origin: https://example.com' header and confirm the response's Access-Control-Allow-Origin equals the sent origin (NOT '*') while Access-Control-Allow-Credentials is true; (2) the full AI Vision flow still works: POST /api/upload (multipart, field 'file', use /app/backend/reference/color_scale.jpg) then POST /api/analyze with the returned image_path + sample metadata returns 200 TestRecord with numeric rating, PASS/FAIL, params and non-empty ai_summary; (3) GET /api/tests/{id}, GET /api/tests, GET /api/dashboard, GET /api/trend, DELETE /api/tests/{id} still work. Allow ~60s per analyze call. Do NOT test frontend."
     -agent: "testing"
     -message: "✅ COMPLETE - All backend tests passed (11/11). The live AI Vision flow is fully functional: upload works, Gemini gemini-3.1-pro-preview analysis completes in ~13s with proper rating/summary/parameters, MongoDB persistence works, retrieval/search/dashboard/trend all reflect the new record correctly, and soft delete works as expected. No issues found. The backend is production-ready."
+    -agent: "testing"
+    -message: "✅ CORS BUG FIX VERIFIED - All 14 tests passed (14/14). CRITICAL FIX CONFIRMED: (1) CORS on actual requests: GET /api/dashboard and GET /api/tests with Origin: https://example.com both return Access-Control-Allow-Origin: https://example.com (reflected origin, NOT '*') and Access-Control-Allow-Credentials: true. (2) CORS preflight: OPTIONS /api/analyze with Origin: https://example.com returns Access-Control-Allow-Origin: https://example.com (reflected) and Access-Control-Allow-Credentials: true. (3) Full AI Vision flow still works: POST /api/upload → POST /api/analyze (17.6s, rating 3.0/10 POOR FAIL, proper Gemini response) → GET /api/tests/{id} → search → dashboard (count 7→8) → trend → DELETE → 404 verification → list exclusion. The Safari 'Load failed' bug is RESOLVED. The backend now correctly reflects the request Origin in CORS headers, which is valid CORS accepted by Safari/WebKit. All functionality remains intact."

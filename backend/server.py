@@ -457,10 +457,16 @@ async def on_startup():
 
 
 app.include_router(api_router)
+# NOTE: `allow_origins=["*"]` together with `allow_credentials=True` produces an
+# invalid CORS response (ACAO "*" + ACAC "true") on actual (non-preflight)
+# requests. Safari/WebKit strictly rejects this -> "Load failed" on upload/analyze.
+# Using `allow_origin_regex=".*"` makes Starlette REFLECT the request Origin into
+# Access-Control-Allow-Origin for both preflight and actual responses, which is
+# valid CORS accepted by all browsers (Safari included).
 app.add_middleware(
     CORSMiddleware,
+    allow_origin_regex=".*",
     allow_credentials=True,
-    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -50,9 +50,135 @@ test_results = {
     "warnings": []
 }
 
+def test_cors_actual_request_dashboard():
+    """Test CORS on actual GET /api/dashboard request with Origin header"""
+    log_test("1. CORS on Actual Request - GET /api/dashboard")
+    test_origin = "https://example.com"
+    try:
+        headers = {"Origin": test_origin}
+        resp = requests.get(f"{BACKEND_URL}/dashboard", headers=headers, timeout=10)
+        
+        if resp.status_code != 200:
+            log_error(f"Expected 200, got {resp.status_code}")
+            test_results["failed"].append(f"CORS GET /api/dashboard - status {resp.status_code}")
+            return False
+        
+        # Check CORS headers
+        acao = resp.headers.get("Access-Control-Allow-Origin")
+        acac = resp.headers.get("Access-Control-Allow-Credentials")
+        
+        log_info(f"Access-Control-Allow-Origin: {acao}")
+        log_info(f"Access-Control-Allow-Credentials: {acac}")
+        
+        # CRITICAL: ACAO must reflect the origin, NOT "*"
+        if acao != test_origin:
+            log_error(f"CORS BUG: Access-Control-Allow-Origin is '{acao}', expected '{test_origin}' (reflected origin)")
+            test_results["failed"].append(f"CORS GET /api/dashboard - ACAO not reflected (got '{acao}')")
+            return False
+        
+        if acac != "true":
+            log_error(f"Access-Control-Allow-Credentials is '{acac}', expected 'true'")
+            test_results["failed"].append(f"CORS GET /api/dashboard - ACAC not 'true'")
+            return False
+        
+        log_success(f"CORS headers correct: Origin reflected as '{acao}', credentials='true'")
+        test_results["passed"].append("CORS GET /api/dashboard - origin reflected")
+        return True
+        
+    except Exception as e:
+        log_error(f"Request failed: {e}")
+        test_results["failed"].append(f"CORS GET /api/dashboard - {str(e)}")
+        return False
+
+def test_cors_actual_request_tests():
+    """Test CORS on actual GET /api/tests request with Origin header"""
+    log_test("2. CORS on Actual Request - GET /api/tests")
+    test_origin = "https://example.com"
+    try:
+        headers = {"Origin": test_origin}
+        resp = requests.get(f"{BACKEND_URL}/tests", headers=headers, timeout=10)
+        
+        if resp.status_code != 200:
+            log_error(f"Expected 200, got {resp.status_code}")
+            test_results["failed"].append(f"CORS GET /api/tests - status {resp.status_code}")
+            return False
+        
+        # Check CORS headers
+        acao = resp.headers.get("Access-Control-Allow-Origin")
+        acac = resp.headers.get("Access-Control-Allow-Credentials")
+        
+        log_info(f"Access-Control-Allow-Origin: {acao}")
+        log_info(f"Access-Control-Allow-Credentials: {acac}")
+        
+        # CRITICAL: ACAO must reflect the origin, NOT "*"
+        if acao != test_origin:
+            log_error(f"CORS BUG: Access-Control-Allow-Origin is '{acao}', expected '{test_origin}' (reflected origin)")
+            test_results["failed"].append(f"CORS GET /api/tests - ACAO not reflected (got '{acao}')")
+            return False
+        
+        if acac != "true":
+            log_error(f"Access-Control-Allow-Credentials is '{acac}', expected 'true'")
+            test_results["failed"].append(f"CORS GET /api/tests - ACAC not 'true'")
+            return False
+        
+        log_success(f"CORS headers correct: Origin reflected as '{acao}', credentials='true'")
+        test_results["passed"].append("CORS GET /api/tests - origin reflected")
+        return True
+        
+    except Exception as e:
+        log_error(f"Request failed: {e}")
+        test_results["failed"].append(f"CORS GET /api/tests - {str(e)}")
+        return False
+
+def test_cors_preflight_analyze():
+    """Test CORS preflight OPTIONS /api/analyze"""
+    log_test("3. CORS Preflight - OPTIONS /api/analyze")
+    test_origin = "https://example.com"
+    try:
+        headers = {
+            "Origin": test_origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type"
+        }
+        resp = requests.options(f"{BACKEND_URL}/analyze", headers=headers, timeout=10)
+        
+        if resp.status_code != 200:
+            log_error(f"Expected 200, got {resp.status_code}")
+            test_results["failed"].append(f"CORS OPTIONS /api/analyze - status {resp.status_code}")
+            return False
+        
+        # Check CORS headers
+        acao = resp.headers.get("Access-Control-Allow-Origin")
+        acac = resp.headers.get("Access-Control-Allow-Credentials")
+        acam = resp.headers.get("Access-Control-Allow-Methods")
+        
+        log_info(f"Access-Control-Allow-Origin: {acao}")
+        log_info(f"Access-Control-Allow-Credentials: {acac}")
+        log_info(f"Access-Control-Allow-Methods: {acam}")
+        
+        # CRITICAL: ACAO must reflect the origin, NOT "*"
+        if acao != test_origin:
+            log_error(f"CORS BUG: Access-Control-Allow-Origin is '{acao}', expected '{test_origin}' (reflected origin)")
+            test_results["failed"].append(f"CORS OPTIONS /api/analyze - ACAO not reflected (got '{acao}')")
+            return False
+        
+        if acac != "true":
+            log_error(f"Access-Control-Allow-Credentials is '{acac}', expected 'true'")
+            test_results["failed"].append(f"CORS OPTIONS /api/analyze - ACAC not 'true'")
+            return False
+        
+        log_success(f"CORS preflight correct: Origin reflected as '{acao}', credentials='true'")
+        test_results["passed"].append("CORS OPTIONS /api/analyze - preflight OK")
+        return True
+        
+    except Exception as e:
+        log_error(f"Request failed: {e}")
+        test_results["failed"].append(f"CORS OPTIONS /api/analyze - {str(e)}")
+        return False
+
 def test_api_root():
     """Test GET /api/ returns API message"""
-    log_test("1. GET /api/ - API Root")
+    log_test("4. GET /api/ - API Root")
     try:
         resp = requests.get(f"{BACKEND_URL}/", timeout=10)
         if resp.status_code == 200:
@@ -76,7 +202,7 @@ def test_api_root():
 
 def test_upload_image():
     """Test POST /api/upload with color_scale.jpg"""
-    log_test("2. POST /api/upload - Upload Test Image")
+    log_test("5. POST /api/upload - Upload Test Image")
     try:
         if not Path(TEST_IMAGE_PATH).exists():
             log_error(f"Test image not found: {TEST_IMAGE_PATH}")
@@ -109,7 +235,7 @@ def test_upload_image():
 
 def test_analyze_image(image_path):
     """Test POST /api/analyze with Gemini vision (can take ~60s)"""
-    log_test("3. POST /api/analyze - AI Vision Analysis (Gemini gemini-3.1-pro-preview)")
+    log_test("6. POST /api/analyze - AI Vision Analysis (Gemini gemini-3.1-pro-preview)")
     log_info("This may take up to 60 seconds for live Gemini API call...")
     
     try:
@@ -207,7 +333,7 @@ def test_analyze_image(image_path):
 
 def test_get_test_by_id(test_id):
     """Test GET /api/tests/{id} retrieves the record"""
-    log_test(f"4. GET /api/tests/{test_id} - Retrieve Test Record")
+    log_test(f"7. GET /api/tests/{test_id} - Retrieve Test Record")
     try:
         resp = requests.get(f"{BACKEND_URL}/tests/{test_id}", timeout=10)
         if resp.status_code == 200:
@@ -234,7 +360,7 @@ def test_get_test_by_id(test_id):
 
 def test_list_tests_with_search(test_id):
     """Test GET /api/tests with search query"""
-    log_test("5. GET /api/tests?q=QA-TEST - Search Tests")
+    log_test("8. GET /api/tests?q=QA-TEST - Search Tests")
     try:
         resp = requests.get(f"{BACKEND_URL}/tests", params={"q": "QA-TEST"}, timeout=10)
         if resp.status_code == 200:
@@ -265,7 +391,7 @@ def test_list_tests_with_search(test_id):
 
 def test_dashboard(initial_count=None):
     """Test GET /api/dashboard"""
-    log_test("6. GET /api/dashboard - Dashboard Stats")
+    log_test("9. GET /api/dashboard - Dashboard Stats")
     try:
         resp = requests.get(f"{BACKEND_URL}/dashboard", timeout=10)
         if resp.status_code == 200:
@@ -301,7 +427,7 @@ def test_dashboard(initial_count=None):
 
 def test_trend(test_id):
     """Test GET /api/trend"""
-    log_test("7. GET /api/trend - Trend Data")
+    log_test("10. GET /api/trend - Trend Data")
     try:
         resp = requests.get(f"{BACKEND_URL}/trend", timeout=10)
         if resp.status_code == 200:
@@ -332,7 +458,7 @@ def test_trend(test_id):
 
 def test_delete_test(test_id):
     """Test DELETE /api/tests/{id} soft delete"""
-    log_test(f"8. DELETE /api/tests/{test_id} - Soft Delete")
+    log_test(f"11. DELETE /api/tests/{test_id} - Soft Delete")
     try:
         resp = requests.delete(f"{BACKEND_URL}/tests/{test_id}", timeout=10)
         if resp.status_code == 200:
@@ -356,7 +482,7 @@ def test_delete_test(test_id):
 
 def test_get_deleted_test(test_id):
     """Test GET /api/tests/{id} returns 404 after delete"""
-    log_test(f"9. GET /api/tests/{test_id} - Verify 404 After Delete")
+    log_test(f"12. GET /api/tests/{test_id} - Verify 404 After Delete")
     try:
         resp = requests.get(f"{BACKEND_URL}/tests/{test_id}", timeout=10)
         if resp.status_code == 404:
@@ -374,7 +500,7 @@ def test_get_deleted_test(test_id):
 
 def test_deleted_not_in_list(test_id):
     """Test deleted record no longer appears in GET /api/tests"""
-    log_test("10. GET /api/tests - Verify Deleted Record Not in List")
+    log_test("13. GET /api/tests - Verify Deleted Record Not in List")
     try:
         resp = requests.get(f"{BACKEND_URL}/tests", timeout=10)
         if resp.status_code == 200:
@@ -435,48 +561,54 @@ def main():
     print(f"Test Image: {TEST_IMAGE_PATH}")
     print(f"{BLUE}{'='*80}{RESET}\n")
     
-    # 1. Test API root
+    # CORS TESTS (Critical for Safari bug fix)
+    log_info("=== CORS VERIFICATION TESTS (Safari bug fix) ===")
+    test_cors_actual_request_dashboard()
+    test_cors_actual_request_tests()
+    test_cors_preflight_analyze()
+    
+    # 4. Test API root
     test_api_root()
     
-    # 2. Get initial dashboard count
+    # 5. Get initial dashboard count
     log_test("Pre-test: Get Initial Dashboard Count")
     initial_count = test_dashboard()
     if initial_count is not None:
         log_info(f"Initial test count: {initial_count}")
     
-    # 3. Upload image
+    # 6. Upload image
     image_path = test_upload_image()
     if not image_path:
         log_error("Cannot proceed without uploaded image")
         print_summary()
         return 1
     
-    # 4. Analyze image (Gemini vision - can take ~60s)
+    # 7. Analyze image (Gemini vision - can take ~60s)
     test_id = test_analyze_image(image_path)
     if not test_id:
         log_error("Cannot proceed without analysis result")
         print_summary()
         return 1
     
-    # 5. Retrieve test by ID
+    # 8. Retrieve test by ID
     test_get_test_by_id(test_id)
     
-    # 6. Search tests
+    # 9. Search tests
     test_list_tests_with_search(test_id)
     
-    # 7. Check dashboard (should show increased count)
+    # 10. Check dashboard (should show increased count)
     test_dashboard(initial_count)
     
-    # 8. Check trend
+    # 11. Check trend
     test_trend(test_id)
     
-    # 9. Delete test
+    # 12. Delete test
     test_delete_test(test_id)
     
-    # 10. Verify 404 after delete
+    # 13. Verify 404 after delete
     test_get_deleted_test(test_id)
     
-    # 11. Verify not in list
+    # 14. Verify not in list
     test_deleted_not_in_list(test_id)
     
     # Print summary
