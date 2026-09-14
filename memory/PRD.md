@@ -55,6 +55,16 @@
 - **P2**: Per-operator dashboards and multi-device sync; calibration reference-sample workflow.
 - **P2**: Filter/sort history by oil type, date range, rating band.
 
+### Update (imported into new env + fixes/features)
+- Reconstructed protected `.env` files (backend: MONGO_URL/DB_NAME/EMERGENT_LLM_KEY/INTEGRATION_PROXY_URL; frontend: EXPO_PUBLIC_BACKEND_URL + packager vars). App runs; verified.
+- **Bug fix — Safari "Load failed"**: CORS middleware used `allow_origins=["*"]` + `allow_credentials=True`, producing an illegal ACAO `*` + ACAC `true` on actual responses that Safari/WebKit rejects. Changed to `allow_origin_regex=".*"` + `allow_credentials=True` (origin reflected). Verified 14/14.
+- **New feature — Nikko Color Scale**:
+  - Backend stores the official Nikko COLOR SCALE board photo (base64 JPEG) + 11-level metadata (0-10) in MongoDB (`reference` collection, key `nikko_color_scale`, idempotent seed). New endpoint `GET /api/color-scale`.
+  - Convention confirmed with user: **0 = darkest/heaviest deposit (worst, FAIL)** … **10 = clear (best, PASS)**; PASS when rating >= 7 (unchanged logic).
+  - AI pipeline now sends TWO images to Gemini (Nikko reference board FIRST + sample SECOND) so it truly compares against the standard (previously only the sample was sent).
+  - Frontend: new screen `app/color-scale.tsx` (board image from DB + 0-10 level legend with swatches/condition/PASS-FAIL), reachable via entry cards on Dashboard and Settings (bottom bar stays 4 tabs). Backend verified.
+  - Per user: NO separate "senior technician recommendation" section was added.
+
 ## Next Tasks
 - Gather user feedback on rating accuracy vs their standard reference samples.
 - Consider a "reference calibration" flow so the AI can be tuned to a lab's known-good tubes.

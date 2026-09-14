@@ -1,13 +1,17 @@
-import { ScrollView, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { CaretRight, Palette } from "phosphor-react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Header } from "@/src/components/Header";
 import { KHTScaleDetail } from "@/src/components/KHTScale";
-import { fonts, makeStyles, radius, spacing } from "@/src/theme";
+import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 export default function Settings() {
   const styles = useStyles();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   return (
     <View style={styles.screen}>
@@ -16,6 +20,17 @@ export default function Settings() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xxl }]}
         showsVerticalScrollIndicator={false}
       >
+        <Pressable style={styles.linkCard} onPress={() => router.push("/color-scale")} testID="settings-color-scale">
+          <View style={styles.linkIcon}>
+            <Palette size={22} color={colors.brandPrimary} weight="fill" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.linkTitle}>Nikko Color Scale</Text>
+            <Text style={styles.linkSub}>Standar referensi warna 0 – 10</Text>
+          </View>
+          <CaretRight size={18} color={colors.onSurfaceTertiary} weight="bold" />
+        </Pressable>
+
         <View style={styles.card}>
           <Text style={styles.cardLabel}>DEFAULT TEST CONDITION</Text>
           <Row k="Temperature" v="320 °C" />
@@ -73,6 +88,26 @@ const useStyles = makeStyles((c) => ({
     padding: spacing.lg,
   },
   cardLabel: { fontFamily: fonts.mono, fontSize: 11, color: c.brandPrimary, letterSpacing: 1.5, marginBottom: spacing.xs },
+  linkCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: c.surfaceSecondary,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: c.border,
+    padding: spacing.lg,
+  },
+  linkIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    backgroundColor: c.brandTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  linkTitle: { fontFamily: fonts.displaySemi, fontSize: 17, color: c.onSurface, letterSpacing: 0.3 },
+  linkSub: { fontFamily: fonts.mono, fontSize: 11, color: c.onSurfaceTertiary, marginTop: 2 },
   row: {
     flexDirection: "row",
     justifyContent: "space-between",

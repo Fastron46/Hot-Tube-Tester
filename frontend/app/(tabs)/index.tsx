@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { ArrowRight, Flask } from "phosphor-react-native";
+import { ArrowRight, Flask, Palette } from "phosphor-react-native";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 
 import { useDashboard } from "@/src/api";
@@ -35,6 +35,20 @@ export default function Dashboard() {
             <Text style={styles.dim}>Run your first AI Vision analysis to see results here.</Text>
             <Pressable style={styles.cta} onPress={() => router.push("/new-test")} testID="dashboard-new-test">
               <Text style={styles.ctaText}>RUN NEW TEST</Text>
+            </Pressable>
+            <Pressable
+              style={styles.linkCard}
+              onPress={() => router.push("/color-scale")}
+              testID="dashboard-color-scale-empty"
+            >
+              <View style={styles.linkIcon}>
+                <Palette size={22} color={colors.brandPrimary} weight="fill" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.linkTitle}>Nikko Color Scale</Text>
+                <Text style={styles.linkSub}>Standar referensi warna 0 – 10</Text>
+              </View>
+              <ArrowRight size={18} color={colors.onSurfaceTertiary} weight="bold" />
             </Pressable>
           </View>
         ) : (
@@ -84,6 +98,22 @@ export default function Dashboard() {
                 <KHTScale current={latest.rating} />
               </View>
             </View>
+
+            {/* Nikko Color Scale reference entry */}
+            <Pressable
+              style={styles.linkCard}
+              onPress={() => router.push("/color-scale")}
+              testID="dashboard-color-scale"
+            >
+              <View style={styles.linkIcon}>
+                <Palette size={22} color={colors.brandPrimary} weight="fill" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.linkTitle}>Nikko Color Scale</Text>
+                <Text style={styles.linkSub}>Standar referensi warna 0 – 10</Text>
+              </View>
+              <ArrowRight size={18} color={colors.onSurfaceTertiary} weight="bold" />
+            </Pressable>
 
             {/* Parameter preview */}
             <View style={styles.card}>
@@ -187,8 +217,29 @@ const useStyles = makeStyles((c) => ({
   },
   reportBtnText: { fontFamily: fonts.monoBold, fontSize: 13, color: c.onBrandPrimary, letterSpacing: 1 },
 
-  statsRow: { flexDirection: "row", gap: spacing.sm },
-  stat: {
+  linkCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    alignSelf: "stretch",
+    backgroundColor: c.surfaceSecondary,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: c.border,
+    padding: spacing.lg,
+  },
+  linkIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    backgroundColor: c.brandTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  linkTitle: { fontFamily: fonts.displaySemi, fontSize: 17, color: c.onSurface, letterSpacing: 0.3 },
+  linkSub: { fontFamily: fonts.mono, fontSize: 11, color: c.onSurfaceTertiary, marginTop: 2 },
+
+  statsRow: { flexDirection: "row", gap: spacing.sm },  stat: {
     flex: 1,
     backgroundColor: c.surfaceSecondary,
     borderRadius: radius.md,

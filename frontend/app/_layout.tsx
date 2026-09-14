@@ -44,6 +44,7 @@ export default function RootLayout() {
                   >
                     <Stack.Screen name="(tabs)" />
                     <Stack.Screen name="result/[id]" />
+                    <Stack.Screen name="color-scale" />
                     <Stack.Screen name="settings" options={{ presentation: "modal" }} />
                   </Stack>
                 </View>

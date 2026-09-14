@@ -31,13 +31,37 @@ db = client[os.environ["DB_NAME"]]
 
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
 
-# Bundled default Nikko COLOR SCALE reference board (0-10)
-REF_FILE = ROOT_DIR / "reference" / "color_scale.jpg"
+# Bundled Nikko COLOR SCALE reference board (0-10). The nikko photo is the
+# official standard board; fall back to the legacy color_scale.jpg if missing.
+NIKKO_FILE = ROOT_DIR / "reference" / "nikko_color_scale.jpg"
+REF_FILE = NIKKO_FILE if NIKKO_FILE.exists() else (ROOT_DIR / "reference" / "color_scale.jpg")
 
 
 def read_bundled_reference() -> bytes:
     with open(REF_FILE, "rb") as f:
         return f.read()
+
+
+def reference_b64() -> str:
+    return base64.b64encode(read_bundled_reference()).decode("utf-8")
+
+
+# Nikko COLOR SCALE level metadata. Convention (matches the physical board and
+# the app): 0 = darkest/heaviest deposit (worst) .. 10 = clear/colorless (best).
+# PASS when rating >= 7.
+NIKKO_LEVELS = [
+    {"level": 0, "color": "#0E0A06", "name": "Hitam Pekat", "condition": "Endapan karbon hitam penuh, tabung tersumbat total.", "deposit_pct": "100%", "grade": "FAILED", "status": "FAIL"},
+    {"level": 1, "color": "#241407", "name": "Cokelat Kehitaman", "condition": "Endapan sangat berat mendekati hitam.", "deposit_pct": "~100%", "grade": "FAILED", "status": "FAIL"},
+    {"level": 2, "color": "#3C2610", "name": "Cokelat Sangat Gelap", "condition": "Endapan sangat berat (extremely heavy).", "deposit_pct": "90 - 100%", "grade": "VERY POOR", "status": "FAIL"},
+    {"level": 3, "color": "#5E3C16", "name": "Cokelat Gelap", "condition": "Endapan sangat tebal (very heavy).", "deposit_pct": "75 - 90%", "grade": "POOR", "status": "FAIL"},
+    {"level": 4, "color": "#7A4A20", "name": "Cokelat", "condition": "Endapan tebal (heavy).", "deposit_pct": "60 - 75%", "grade": "POOR", "status": "FAIL"},
+    {"level": 5, "color": "#A9702E", "name": "Amber / Cokelat Muda", "condition": "Endapan menengah-berat (moderate heavy).", "deposit_pct": "45 - 60%", "grade": "FAIR", "status": "FAIL"},
+    {"level": 6, "color": "#C9992F", "name": "Kuning-Amber", "condition": "Endapan menengah (moderate).", "deposit_pct": "30 - 45%", "grade": "FAIR", "status": "FAIL"},
+    {"level": 7, "color": "#D8B24C", "name": "Kuning Jerami", "condition": "Endapan ringan (light).", "deposit_pct": "15 - 30%", "grade": "GOOD", "status": "PASS"},
+    {"level": 8, "color": "#E4D08A", "name": "Kuning Pucat", "condition": "Endapan sedikit (slight).", "deposit_pct": "5 - 15%", "grade": "VERY GOOD", "status": "PASS"},
+    {"level": 9, "color": "#EFE6C4", "name": "Kuning Sangat Samar", "condition": "Endapan sangat sedikit (very slight).", "deposit_pct": "< 5%", "grade": "EXCELLENT", "status": "PASS"},
+    {"level": 10, "color": "#EAF1F0", "name": "Bening / Tak Berwarna", "condition": "Tabung bersih tanpa endapan.", "deposit_pct": "0%", "grade": "EXCELLENT", "status": "PASS"},
+]
 
 # ---------------------------------------------------------------------------
 # Object storage
@@ -225,8 +249,14 @@ async def run_ai_vision(image_b64: str) -> dict:
         session_id=f"kht-{uuid.uuid4()}",
         system_message="You are a precise industrial machine-vision inspection model that only outputs JSON.",
     ).with_model("gemini", "gemini-3.1-pro-preview")
+    # Send TWO images so the model can visually COMPARE against the standard:
+    # 1) the Nikko COLOR SCALE reference board, 2) the operator's sample tube.
+    ref_b64 = reference_b64()
     resp = await chat.send_message(
-        UserMessage(text=ANALYSIS_PROMPT, file_contents=[ImageContent(image_base64=image_b64)])
+        UserMessage(
+            text=ANALYSIS_PROMPT,
+            file_contents=[ImageContent(image_base64=ref_b64), ImageContent(image_base64=image_b64)],
+        )
     )
     data = _parse_ai_json(resp if isinstance(resp, str) else str(resp))
     return data
@@ -378,6 +408,21 @@ async def trend():
     ]
 
 
+@api_router.get("/color-scale")
+async def color_scale():
+    doc = await db.reference.find_one({"key": "nikko_color_scale"})
+    if not doc:
+        await seed_reference()
+        doc = await db.reference.find_one({"key": "nikko_color_scale"})
+    return {
+        "title": doc.get("title", "Nikko COLOR SCALE"),
+        "note": doc.get("note", ""),
+        "image": f"data:{doc.get('content_type', 'image/jpeg')};base64,{doc['image_base64']}",
+        "levels": doc.get("levels", []),
+        "updated_at": doc.get("updated_at"),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Seed demo data
 # ---------------------------------------------------------------------------
@@ -444,12 +489,34 @@ async def seed():
         await db.tests.insert_one(rec_dict)
 
 
+async def seed_reference():
+    """Store the Nikko COLOR SCALE standard board image (base64) + level metadata
+    in MongoDB. Idempotent: refreshes the doc so image/levels stay in sync."""
+    try:
+        doc = {
+            "key": "nikko_color_scale",
+            "title": "Nikko COLOR SCALE",
+            "note": "0 = paling gelap/pekat (terburuk) · 10 = bening/tak berwarna (terbaik). LULUS bila rating >= 7.",
+            "content_type": "image/jpeg",
+            "image_base64": reference_b64(),
+            "levels": NIKKO_LEVELS,
+            "updated_at": now_iso(),
+        }
+        await db.reference.replace_one({"key": "nikko_color_scale"}, doc, upsert=True)
+    except Exception as e:
+        logger.warning("seed_reference failed: %s", e)
+
+
 @app.on_event("startup")
 async def on_startup():
     try:
         await run_in_threadpool(init_storage)
     except Exception as e:
         logger.warning("Storage init deferred: %s", e)
+    try:
+        await seed_reference()
+    except Exception as e:
+        logger.warning("Reference seed failed: %s", e)
     try:
         await seed()
     except Exception as e:

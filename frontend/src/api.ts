@@ -88,6 +88,28 @@ export function useTrend() {
   });
 }
 
+export type ColorScaleLevel = {
+  level: number;
+  color: string;
+  name: string;
+  condition: string;
+  deposit_pct: string;
+  grade: string;
+  status: string;
+};
+
+export type ColorScaleData = {
+  title: string;
+  note: string;
+  image: string; // base64 data URI
+  levels: ColorScaleLevel[];
+  updated_at?: string;
+};
+
+export function useColorScale() {
+  return useQuery({ queryKey: ["color-scale"], queryFn: () => getJSON<ColorScaleData>(`${API}/color-scale`) });
+}
+
 export async function uploadImage(uri: string): Promise<string> {
   const clean = uri.split("?")[0].toLowerCase();
   const ext = clean.endsWith(".png") ? "png" : "jpg";
