@@ -70,6 +70,10 @@
 - Floating action bar → **EXPORT PDF** builds ONE integrated PDF via `src/utils/pdf-report.ts`: page 1 = cover (title, generated date, Total/Pass/Fail/Avg stats, summary table of all samples), then exactly one page per selected sample (photo embedded as base64, rating, status, description, recommendation, parameters, test info). Verified: 4 samples → 5-page PDF.
 - Native: `expo-print` → share sheet; Web: isolated iframe print dialog (save as PDF).
 
+### Bug fix — "Run AI Vision Analysis" failed
+- Root cause: ingress proxy returns 502 after 60s; Gemini 3.1 Pro took >100s on full-res photos.
+- Fix: image downscaled to max 1600px before Gemini; NEW async flow `POST /api/analyze/start` → `GET /api/analyze/jobs/{id}` (Mongo `analyze_jobs`), frontend polls every 2.5s (≤6 min) and shows elapsed seconds. Verified 24/24 backend tests via external URL (job ~25-45s).
+
 ## Next Tasks
 - Gather user feedback on rating accuracy vs their standard reference samples.
 - Consider a "reference calibration" flow so the AI can be tuned to a lab's known-good tubes.

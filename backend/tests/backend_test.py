@@ -11,7 +11,15 @@ import base64
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://fleet-monitor-216.preview.emergentagent.com").rstrip("/")
+# Load EXPO_PUBLIC_BACKEND_URL from frontend/.env so tests hit the external URL
+# through the K8s ingress (the same URL the mobile app uses).
+try:
+    from dotenv import load_dotenv as _ld
+    _ld(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", ".env"))
+except Exception:
+    pass
+
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://b7eb6e63-6a63-4176-abe6-13b6a52d6ad1.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 # --- Real (non-blank) JPEG image with visual features -----------------------
@@ -284,7 +292,173 @@ class TestAnalyzePipeline:
 # Delete (soft) - invalid id only; the main analyze->delete flow is now
 # inside TestAnalyzePipeline so it shares a pytest-xdist worker.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Delete (soft) - invalid id only; the main analyze->delete flow is now
+# inside TestAnalyzePipeline so it shares a pytest-xdist worker.
+# ---------------------------------------------------------------------------
 class TestDelete:
     def test_delete_invalid_id_returns_404(self, api_client):
         r = api_client.delete(f"{API}/tests/does-not-exist-xyz", timeout=30)
         assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Async analyze flow (NEW) — POST /api/analyze/start + GET /api/analyze/jobs/{id}
+# The ingress proxy times out at ~60s so Gemini analysis must run as a
+# background job. Each individual HTTP request must complete quickly (< 60s),
+# and the polling flow must yield a completed record within ~5 min.
+# ---------------------------------------------------------------------------
+def _make_large_brownish_jpeg(width: int = 2400, height: int = 1400) -> bytes:
+    """A large 2400x1400 brownish-gradient JPEG (few MB) that emulates a real
+    photo taken on a phone — used to force the backend downscale path."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (width, height), (60, 40, 20))
+    px = img.load()
+    for y in range(height):
+        t = y / height
+        r = int(200 * (1 - t) + 60 * t)
+        g = int(140 * (1 - t) + 40 * t)
+        b = int(80 * (1 - t) + 20 * t)
+        for x in range(width):
+            px[x, y] = (r, g, b)
+    d = ImageDraw.Draw(img)
+    # simulate a vertical tube with a brown deposit band
+    tube_left, tube_right = width // 2 - 200, width // 2 + 200
+    d.rectangle([tube_left, 80, tube_right, height - 80], outline=(220, 220, 220), width=8)
+    d.rectangle([tube_left + 20, height // 3, tube_right - 20, 2 * height // 3], fill=(90, 55, 25))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return buf.getvalue()
+
+
+class TestAsyncAnalyzeJob:
+    """New async job flow: /analyze/start + /analyze/jobs/{id} polling."""
+
+    def test_upload_large_photo(self, api_client):
+        big = _make_large_brownish_jpeg(2400, 1400)
+        assert len(big) > 50_000, f"expected substantial image, got {len(big)}"
+        files = {"file": ("TEST_big_tube.jpg", big, "image/jpeg")}
+        r = api_client.post(f"{API}/upload", files=files, timeout=180)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data.get("image_path"), data
+        pytest.big_image_path = data["image_path"]
+
+    def test_analyze_start_returns_running_job_quickly(self, api_client):
+        image_path = getattr(pytest, "big_image_path", None)
+        if not image_path:
+            pytest.skip("upload step didn't succeed")
+        payload = {
+            "image_path": image_path,
+            "sample_id": "TEST-JOB-1",
+            "oil_type": "Engine Oil SAE 15W-40",
+            "batch": "TEST_JOB_LOT",
+            "operator": "Automated Job Test",
+            "temperature_c": 320,
+            "duration_hours": 16,
+            "air_flow": 10,
+            "oil_flow": 0.31,
+            "remark": "async job pytest",
+        }
+        import time as _t
+        t0 = _t.time()
+        r = api_client.post(f"{API}/analyze/start", json=payload, timeout=60)
+        elapsed = _t.time() - t0
+        assert r.status_code == 200, r.text
+        # The critical fix: /analyze/start must return well under the 60s
+        # ingress limit — usually within a couple of seconds.
+        assert elapsed < 30, f"/analyze/start blocked for {elapsed:.1f}s (should be near-instant)"
+        job = r.json()
+        assert job.get("id"), job
+        assert job.get("status") == "running", job
+        assert job.get("record_id") in (None, ""), job
+        pytest.job_id = job["id"]
+
+    def test_poll_job_until_done(self, api_client):
+        job_id = getattr(pytest, "job_id", None)
+        if not job_id:
+            pytest.skip("analyze/start didn't succeed")
+        import time as _t
+        deadline = _t.time() + 300  # 5 min
+        last = None
+        status = None
+        while _t.time() < deadline:
+            _t.sleep(3)
+            t0 = _t.time()
+            r = api_client.get(f"{API}/analyze/jobs/{job_id}", timeout=30)
+            single = _t.time() - t0
+            assert r.status_code == 200, r.text
+            # every individual poll must be a quick request (well below 60s)
+            assert single < 30, f"single poll took {single:.1f}s"
+            last = r.json()
+            status = last.get("status")
+            if status != "running":
+                break
+        assert status == "done", f"job did not complete cleanly: {last}"
+        assert last.get("record_id"), last
+        pytest.job_record_id = last["record_id"]
+
+    def test_job_record_is_valid_test_record(self, api_client):
+        rid = getattr(pytest, "job_record_id", None)
+        if not rid:
+            pytest.skip("job didn't complete")
+        r = api_client.get(f"{API}/tests/{rid}", timeout=30)
+        assert r.status_code == 200, r.text
+        rec = r.json()
+        assert 0 <= rec["rating"] <= 10
+        assert rec["status"] in ("PASS", "FAIL")
+        assert rec.get("ai_model") == "gemini-3.1-pro-preview"
+        summary = (rec.get("ai_summary") or "").strip()
+        assert len(summary) >= 10, f"ai_summary too short: {summary!r}"
+        # meta round-trip
+        assert rec["meta"]["sample_id"] == "TEST-JOB-1"
+        assert float(rec["meta"]["temperature_c"]) == 320
+        assert float(rec["meta"]["duration_hours"]) == 16
+        assert float(rec["meta"]["air_flow"]) == 10
+        assert abs(float(rec["meta"]["oil_flow"]) - 0.31) < 1e-6
+        # numeric parameters
+        p = rec["parameters"]
+        for k in (
+            "deposit_area_pct", "deposit_length_mm", "deposit_coverage_pct",
+            "avg_intensity_l", "avg_color_a", "avg_color_b", "max_intensity",
+            "thickness_index_mm", "deposit_start_mm", "deposit_end_mm",
+        ):
+            assert isinstance(p[k], (int, float)), f"{k}={p[k]!r} not numeric"
+
+    def test_analyze_start_missing_image_returns_404(self, api_client):
+        payload = {
+            "image_path": "kht-ai-vision/uploads/does-not-exist-xyz.jpg",
+            "sample_id": "TEST_MISSING",
+            "oil_type": "x", "batch": "x", "operator": "x",
+            "temperature_c": 320, "duration_hours": 16, "air_flow": 10, "oil_flow": 0.31,
+            "remark": "",
+        }
+        r = api_client.post(f"{API}/analyze/start", json=payload, timeout=30)
+        assert r.status_code == 404, r.text
+
+    def test_analyze_jobs_unknown_id_returns_404(self, api_client):
+        r = api_client.get(f"{API}/analyze/jobs/nonexistent-xyz", timeout=30)
+        assert r.status_code == 404
+
+    def test_zz_cleanup_job_record(self, api_client):
+        rid = getattr(pytest, "job_record_id", None)
+        if not rid:
+            pytest.skip("no record to clean up")
+        r = api_client.delete(f"{API}/tests/{rid}", timeout=30)
+        assert r.status_code == 200
+        r2 = api_client.get(f"{API}/tests/{rid}", timeout=30)
+        assert r2.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Color scale (regression)
+# ---------------------------------------------------------------------------
+class TestColorScale:
+    def test_color_scale_endpoint(self, api_client):
+        r = api_client.get(f"{API}/color-scale", timeout=30)
+        assert r.status_code == 200
+        data = r.json()
+        for k in ("title", "note", "image", "levels"):
+            assert k in data
+        assert isinstance(data["levels"], list) and len(data["levels"]) == 11
+

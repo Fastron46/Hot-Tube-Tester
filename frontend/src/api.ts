@@ -173,21 +173,48 @@ export async function imageToDataUri(url: string): Promise<string | null> {
 
 export type AnalyzePayload = Partial<TestMeta> & { image_path: string };
 
-export function useAnalyze() {
+type AnalyzeJob = { id: string; status: "running" | "done" | "error"; record_id?: string | null; error?: string | null };
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Gemini can take longer than the proxy's 60s request limit, so the backend
+// runs the analysis as a job and we poll for the result (up to ~6 minutes).
+export async function analyzeWithPolling(payload: AnalyzePayload, onTick?: (elapsedSec: number) => void) {
+  const startRes = await fetch(`${API}/analyze/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!startRes.ok) {
+    const t = await startRes.text();
+    throw new Error(t || `Analysis failed: ${startRes.status}`);
+  }
+  const job = (await startRes.json()) as AnalyzeJob;
+  const started = Date.now();
+  const deadline = started + 6 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await sleep(2500);
+    onTick?.(Math.round((Date.now() - started) / 1000));
+    let st: AnalyzeJob | null = null;
+    try {
+      const r = await fetch(`${API}/analyze/jobs/${job.id}`);
+      if (r.ok) st = (await r.json()) as AnalyzeJob;
+    } catch {
+      // transient network error — keep polling
+    }
+    if (!st) continue;
+    if (st.status === "done" && st.record_id) {
+      return getJSON<TestRecord>(`${API}/tests/${st.record_id}`);
+    }
+    if (st.status === "error") throw new Error(st.error || "AI Vision analysis failed.");
+  }
+  throw new Error("Analisa AI memakan waktu terlalu lama. Coba lagi dengan foto yang lebih kecil.");
+}
+
+export function useAnalyze(onTick?: (elapsedSec: number) => void) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: AnalyzePayload) => {
-      const res = await fetch(`${API}/analyze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || `Analysis failed: ${res.status}`);
-      }
-      return (await res.json()) as TestRecord;
-    },
+    mutationFn: (payload: AnalyzePayload) => analyzeWithPolling(payload, onTick),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["tests"] });

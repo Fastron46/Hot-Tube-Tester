@@ -1,0 +1,44 @@
+{
+  "summary": "Backend validation of the new async AI Vision job flow that fixes the 60s ingress-proxy 502 timeout. Extended /app/backend/tests/backend_test.py with a new TestAsyncAnalyzeJob class (7 tests) covering: (1) upload a 2400x1400 brownish-gradient JPEG (100KB) to /api/upload -> 200 with image_path, (2) POST /api/analyze/start -> 200 in <30s with {id, status:'running', record_id:None}, (3) poll GET /api/analyze/jobs/{id} every 3s until status=='done' (each individual request completes well under 60s), (4) GET /api/tests/{record_id} returns a valid TestRecord with rating 0-10, ai_model=='gemini-3.1-pro-preview', ai_summary in Bahasa Indonesia (non-empty), all 10 numeric parameters, and meta round-trip (sample_id=='TEST-JOB-1', temperature_c=320, duration_hours=16, air_flow=10, oil_flow=0.31), (5) POST /api/analyze/start with non-existent image_path -> 404, (6) GET /api/analyze/jobs/nonexistent -> 404, (7) DELETE cleanup then GET verifies 404. Also added TestColorScale regression test. Full suite: pytest 24/24 passed in 22.4s (2-worker xdist). Manual verification: /api/tests now shows exactly the 4 seeded demo records — no lingering TEST_* rows. All individual HTTP requests in the async flow returned quickly (<5s each) so the ingress 60s proxy limit is never approached. FRONTEND (mobile viewport 390x844): /new-test loads with 0 console errors; run-analysis, pick-camera, pick-gallery testIDs present; auto-generated Sample ID (KHT-2026-09-15-558) and default meta (Engine Oil SAE 15W-40, 320C, 16h) are pre-filled. Tapping GALLERY does NOT surface an <input type=file> in this headless Chromium (expo-image-picker relies on the OS file picker), so the end-to-end web click-through of Run AI Vision Analysis could not be exercised — flagged and skipped as per review request. Deprecated packages detected: none. React Native red screen: none. SafeAreaView issues detected: none.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "End-to-end analyze on web preview",
+        "issue": "Cannot drive expo-image-picker in headless Chromium — no <input type=file> is created after tapping GALLERY, so the full 'pick image → crop → Run AI Vision Analysis → stage text → /result/{id}' click-through could not be exercised on web. UI up to the picker is verified; the polling API path is covered by TestAsyncAnalyzeJob.",
+        "affected_testIDs": ["pick-gallery", "crop-use-full", "run-analysis"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "None for the reported bug — the /api/analyze/start + /api/analyze/jobs/{id} async job flow is fully verified end-to-end against the external URL and each request completes well under the 60s ingress limit. Main agent can self-verify on device: open New Test → pick a real JPEG → Use Full Image / crop → tap RUN AI VISION ANALYSIS → confirm stage text 'Running AI Vision analysis… Ns' updates each second, then navigation to /result/{id} within ~1 min."
+  ],
+  "critical_code_review_comments": [
+    "server.py::analyze_start uses asyncio.create_task(_run_job(...)) to spawn the background job. If the app process is restarted mid-analysis, in-flight jobs are lost and their doc stays 'running' forever. Consider a small janitor that flips stale running jobs (created_at older than deadline) to error on startup. Not a blocker for this fix.",
+    "server.py still uses deprecated @app.on_event('startup'/'shutdown') — migrate to FastAPI lifespan. Non-blocking (carried over from iter_5).",
+    "server.py::_downscale_for_ai is synchronous PIL work wrapped correctly in run_in_threadpool — good. Consider also stripping EXIF entirely if any orientation issues surface on iOS photos.",
+    "frontend/src/api.ts::analyzeWithPolling: 2.5s poll * up to 6 min is fine. Consider surfacing intermediate 'error' body from the job doc (already returned) rather than only status text — currently the UI just shows generic 'Analysis failed'."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new TestAsyncAnalyzeJob class + TestColorScale regression; load EXPO_PUBLIC_BACKEND_URL from frontend/.env so tests hit the external ingress URL)"
+  ],
+  "success_rate": {
+    "backend": "100% (24/24 pytest passed, 22.4s); async /analyze/start returned in <2s, full job completed in ~30-45s over the external URL",
+    "frontend": "Render-only (100% for /new-test render, 0 console errors). End-to-end click-through blocked by headless-Chromium file picker limitation — reported."
+  },
+  "seed_data_creation": "Two ephemeral TEST_* records created during the run (one via legacy /analyze pipeline, one via new /analyze/start job) — both soft-deleted in-flow. Post-run /api/tests returns exactly the 4 seeded demo records.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The new async flow lives at POST /api/analyze/start (returns AnalyzeJob {id,status,record_id,error,created_at,finished_at}) and GET /api/analyze/jobs/{id}. The backend pre-checks the image_path exists BEFORE spawning the task, so 404 comes back synchronously for missing images (verified). Individual request timings observed: /upload ~1s for 100KB, /analyze/start ~1-2s, each /analyze/jobs poll ~<1s, total job time ~30-45s on the current external URL. All well below the 60s ingress budget per request. To fully verify the frontend polling on web, ImagePicker's <input type=file> must be reachable — it is not created in this headless Chromium; test on device or in a real browser session.",
+  "rca_of_issue": "Original bug: 'Run AI Vision Analysis' failed with the ingress proxy returning 502 at 60s because Gemini 3.1 Pro Vision on full-resolution phone photos exceeded that window. FIX (already applied by main agent, now verified): (1) backend downscales images to max 1600px before sending to Gemini (_downscale_for_ai), (2) new async job flow POST /api/analyze/start returns immediately with a 'running' job while _run_job() executes in the background, (3) frontend polls /api/analyze/jobs/{id} every 2.5s up to 6 min. Test verifies each individual HTTP request is fast (<30s) and the whole job completes cleanly with a valid TestRecord + Bahasa Indonesia ai_summary. Bug is fixed."
+}

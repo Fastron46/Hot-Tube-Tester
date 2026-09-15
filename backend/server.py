@@ -1,6 +1,8 @@
 import os
+import io
 import json
 import uuid
+import asyncio
 import base64
 import logging
 import re
@@ -16,6 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, BeforeValidator
 from dotenv import load_dotenv
+from PIL import Image as PILImage, ImageOps
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
 
@@ -314,20 +317,98 @@ async def serve_file(path: str):
     return Response(content=content, media_type=content_type)
 
 
-@api_router.post("/analyze", response_model=TestRecord)
-async def analyze(req: AnalyzeRequest):
+def _downscale_for_ai(content: bytes, max_side: int = 1600) -> bytes:
+    """Resize large photos before sending to Gemini. Keeps enough detail for
+    color/deposit grading while cutting model latency dramatically."""
+    try:
+        im = PILImage.open(io.BytesIO(content))
+        im = ImageOps.exif_transpose(im).convert("RGB")
+        w, h = im.size
+        scale = max(w, h) / float(max_side)
+        if scale > 1:
+            im = im.resize((int(w / scale), int(h / scale)), PILImage.LANCZOS)
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=88)
+        return out.getvalue()
+    except Exception:
+        logger.warning("downscale failed; sending original image")
+        return content
+
+
+async def _analyze_to_record(req: AnalyzeRequest) -> TestRecord:
     try:
         content, _ = await run_in_threadpool(get_object, req.image_path)
     except Exception:
         raise HTTPException(status_code=404, detail="Image not found in storage")
 
-    b64 = base64.b64encode(content).decode("utf-8")
+    small = await run_in_threadpool(_downscale_for_ai, content)
+    b64 = base64.b64encode(small).decode("utf-8")
     try:
         ai = await run_ai_vision(b64)
     except Exception as e:
         logger.exception("AI vision failed")
         raise HTTPException(status_code=502, detail=f"AI Vision analysis failed: {e}")
+    record = _build_record(req, ai)
+    await db.tests.insert_one(record.model_dump())
+    return record
 
+
+@api_router.post("/analyze", response_model=TestRecord)
+async def analyze(req: AnalyzeRequest):
+    return await _analyze_to_record(req)
+
+
+# --- Async job flow (the ingress proxy times out at ~60s; Gemini can take
+# longer on real photos, so the app starts a job and polls for the result) ---
+class AnalyzeJob(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    status: str = "running"  # running | done | error
+    record_id: Optional[str] = None
+    error: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+    finished_at: Optional[str] = None
+
+
+async def _run_job(job_id: str, req: AnalyzeRequest):
+    try:
+        record = await _analyze_to_record(req)
+        await db.analyze_jobs.update_one(
+            {"id": job_id},
+            {"$set": {"status": "done", "record_id": record.id, "finished_at": now_iso()}},
+        )
+    except HTTPException as e:
+        await db.analyze_jobs.update_one(
+            {"id": job_id}, {"$set": {"status": "error", "error": str(e.detail), "finished_at": now_iso()}}
+        )
+    except Exception as e:
+        logger.exception("analyze job failed")
+        await db.analyze_jobs.update_one(
+            {"id": job_id}, {"$set": {"status": "error", "error": str(e), "finished_at": now_iso()}}
+        )
+
+
+@api_router.post("/analyze/start", response_model=AnalyzeJob)
+async def analyze_start(req: AnalyzeRequest):
+    # Fail fast if the image is missing, before spawning the job.
+    try:
+        await run_in_threadpool(get_object, req.image_path)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Image not found in storage")
+    job = AnalyzeJob()
+    await db.analyze_jobs.insert_one(job.model_dump())
+    asyncio.create_task(_run_job(job.id, req))
+    return job
+
+
+@api_router.get("/analyze/jobs/{job_id}", response_model=AnalyzeJob)
+async def analyze_job_status(job_id: str):
+    doc = await db.analyze_jobs.find_one({"id": job_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return AnalyzeJob(**doc)
+
+
+def _build_record(req: AnalyzeRequest, ai: dict) -> TestRecord:
     rating = _clamp(ai.get("rating"), 0, 10)
     params = Parameters(
         deposit_area_pct=_clamp(ai.get("deposit_area_pct"), 0, 100),
@@ -353,7 +434,6 @@ async def analyze(req: AnalyzeRequest):
         parameters=params,
         ai_summary=str(ai.get("summary", "")),
     )
-    await db.tests.insert_one(record.model_dump())
     return record
 
 

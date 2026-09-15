@@ -231,3 +231,15 @@ agent_communication:
 
     -agent: "testing"
     -message: "✅ NIKKO COLOR SCALE FEATURE VERIFIED - All 10 tests passed (10/10). TEST 1 - NEW endpoint GET /api/color-scale: Returns 200 JSON with all required keys (title, note, image, levels). Image is base64 data URI starting with 'data:image/jpeg;base64,' with 329,099 chars (exceeds 10,000 requirement). Levels array has exactly 11 entries (0-10), each with all required fields (level, color, name, condition, deposit_pct, grade, status). Convention verified: level 0 = 'Hitam Pekat' status FAIL (darkest/worst), level 10 = 'Bening / Tak Berwarna' status PASS (clear/best). Levels 0-6 all have status FAIL, levels 7-10 all have status PASS. TEST 2 - AI analyze with two-image comparison: POST /api/upload successful, POST /api/analyze completed in 24.0s with rating 5.0/10 FAIR FAIL, ai_model=gemini-3.1-pro-preview, ai_summary in Bahasa Indonesia references COLOR SCALE ('Warna endapan cokelat sedang cocok dengan skala 5 pada COLOR SCALE'), all parameters present and numeric. Cleanup successful (deleted test record, dashboard back to 4 seeded records). TEST 3 - Regression: GET /api/, GET /api/dashboard, GET /api/tests, GET /api/trend, GET /api/tests/{id}, DELETE /api/tests/nonexistent returns 404 - all working correctly. The Nikko Color Scale feature is fully functional with proper two-image comparison in Gemini AI."
+
+  - task: "AI Vision analysis fails on real photos (proxy 60s timeout) — async job fix"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py, frontend/src/api.ts, frontend/app/(tabs)/new-test.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "BUG FIX. Root cause: the ingress proxy returns 502 after 60s; Gemini 3.1 Pro took >100s on full-res photos so POST /api/analyze never returned to the app ('Run AI Vision Analysis' failed). Fix: (1) backend downscales the image to max 1600px JPEG before sending to Gemini; (2) NEW async flow: POST /api/analyze/start returns {id,status:'running'} immediately and runs the analysis as a background task persisted in Mongo collection analyze_jobs; GET /api/analyze/jobs/{id} returns status running|done|error with record_id; (3) frontend useAnalyze now calls /analyze/start then polls every 2.5s (up to 6 min) and fetches GET /api/tests/{record_id}; stage text shows elapsed seconds. Legacy POST /api/analyze kept (sync). Verified manually via external URL: job done in ~25s."

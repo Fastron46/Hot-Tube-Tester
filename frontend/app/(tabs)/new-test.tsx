@@ -27,7 +27,7 @@ export default function NewTest() {
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const analyze = useAnalyze();
+  const analyze = useAnalyze((sec) => setStage(`Running AI Vision analysis… ${sec}s`));
 
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [rawImage, setRawImage] = useState<{ uri: string; width?: number; height?: number } | null>(null);
