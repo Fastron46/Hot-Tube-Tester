@@ -113,6 +113,57 @@ export function useColorScale() {
   return useQuery({ queryKey: ["color-scale"], queryFn: () => getJSON<ColorScaleData>(`${API}/color-scale`) });
 }
 
+// Web only: shrink very large photos (laptop/phone originals can be 10+ MB)
+// before upload. The AI pipeline downsizes to 1600px anyway, so 2000px keeps
+// plenty of detail while making the request far less likely to be rejected.
+async function downscaleBlobOnWeb(blob: Blob, maxSide = 2000): Promise<Blob> {
+  try {
+    const bmp = await createImageBitmap(blob);
+    const scale = Math.max(bmp.width, bmp.height) / maxSide;
+    if (scale <= 1) return blob;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width / scale);
+    canvas.height = Math.round(bmp.height / scale);
+    canvas.getContext("2d")?.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const out = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.92));
+    return out ?? blob;
+  } catch {
+    return blob;
+  }
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onerror = () => reject(fr.error);
+    fr.onload = () => resolve(String(fr.result).split(",")[1] ?? "");
+    fr.readAsDataURL(blob);
+  });
+}
+
+// Fallback path: send the image as base64 JSON chunks (~300 KB each).
+async function uploadInChunks(blob: Blob, ext: string): Promise<string> {
+  return uploadBase64InChunks(await blobToBase64(blob), ext);
+}
+
+async function uploadBase64InChunks(b64: string, ext: string): Promise<string> {
+  const CHUNK = 300 * 1024;
+  const total = Math.max(1, Math.ceil(b64.length / CHUNK));
+  const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  for (let i = 0; i < total; i++) {
+    const res = await postJsonWithRetry(`${API}/upload/chunk`, {
+      upload_id: uploadId,
+      index: i,
+      total,
+      data: b64.slice(i * CHUNK, (i + 1) * CHUNK),
+    });
+    if (!res.ok) throw new Error(`Upload chunk ${i + 1}/${total} failed: ${res.status}`);
+  }
+  const fin = await postJsonWithRetry(`${API}/upload/finish`, { upload_id: uploadId, ext });
+  if (!fin.ok) throw new Error(`Upload finish failed: ${fin.status} ${await fin.text()}`);
+  return ((await fin.json()) as { image_path: string }).image_path;
+}
+
 export async function uploadImage(uri: string): Promise<string> {
   const clean = uri.split("?")[0].toLowerCase();
   const ext = clean.endsWith(".png") ? "png" : "jpg";
@@ -121,12 +172,20 @@ export async function uploadImage(uri: string): Promise<string> {
 
   if (Platform.OS === "web") {
     // Web: turn the (blob:/data:) uri into a real Blob before appending.
-    const form = new FormData();
-    const blob = await (await fetch(uri)).blob();
-    form.append("file", blob, name);
-    const res = await fetch(`${API}/upload`, { method: "POST", body: form });
-    if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-    return ((await res.json()) as { image_path: string }).image_path;
+    let blob = await (await fetch(uri)).blob();
+    blob = await downscaleBlobOnWeb(blob);
+    try {
+      const form = new FormData();
+      form.append("file", blob, name);
+      const res = await fetch(`${API}/upload`, { method: "POST", body: form });
+      if (res.ok) return ((await res.json()) as { image_path: string }).image_path;
+      if (res.status !== 413) throw new Error(`Upload failed: ${res.status}`);
+    } catch (e) {
+      if (!(e instanceof TypeError) && !String((e as Error)?.message).includes("413")) throw e;
+      // Network-level failure ("Failed to fetch") or 413 → fall back to
+      // small base64 JSON chunks which pass restrictive proxies.
+    }
+    return uploadInChunks(blob, ext);
   }
 
   // Native: React Native's FormData rejects file parts on new-architecture
@@ -143,16 +202,25 @@ export async function uploadImage(uri: string): Promise<string> {
   } catch {
     localUri = uri;
   }
-  const result = await FileSystem.uploadAsync(`${API}/upload`, localUri, {
-    httpMethod: "POST",
-    uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-    fieldName: "file",
-    mimeType: type,
-  });
-  if (result.status < 200 || result.status >= 300) {
+  let result: FileSystem.FileSystemUploadResult | null = null;
+  try {
+    result = await FileSystem.uploadAsync(`${API}/upload`, localUri, {
+      httpMethod: "POST",
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      fieldName: "file",
+      mimeType: type,
+    });
+  } catch {
+    result = null; // network-level failure → chunked fallback below
+  }
+  if (result && result.status >= 200 && result.status < 300) {
+    return (JSON.parse(result.body) as { image_path: string }).image_path;
+  }
+  if (result && result.status !== 413) {
     throw new Error(`Upload failed: ${result.status} ${result.body ?? ""}`.trim());
   }
-  return (JSON.parse(result.body) as { image_path: string }).image_path;
+  const b64 = await FileSystem.readAsStringAsync(localUri, { encoding: FileSystem.EncodingType.Base64 });
+  return uploadBase64InChunks(b64, ext);
 }
 
 // Fetch an image URL and return a base64 data URI (used to embed the original
@@ -177,14 +245,28 @@ type AnalyzeJob = { id: string; status: "running" | "done" | "error"; record_id?
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+async function postJsonWithRetry(url: string, body: unknown, attempts = 3): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      // "Failed to fetch" / network hiccup — back off and retry.
+      lastErr = e;
+      await sleep(1000 * (i + 1));
+    }
+  }
+  throw new Error(`Tidak bisa terhubung ke server (${(lastErr as Error)?.message ?? "network"}). Periksa koneksi lalu coba lagi.`);
+}
+
 // Gemini can take longer than the proxy's 60s request limit, so the backend
 // runs the analysis as a job and we poll for the result (up to ~6 minutes).
 export async function analyzeWithPolling(payload: AnalyzePayload, onTick?: (elapsedSec: number) => void) {
-  const startRes = await fetch(`${API}/analyze/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  const startRes = await postJsonWithRetry(`${API}/analyze/start`, payload);
   if (!startRes.ok) {
     const t = await startRes.text();
     throw new Error(t || `Analysis failed: ${startRes.status}`);

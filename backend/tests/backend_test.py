@@ -208,6 +208,130 @@ class TestNativeStyleMultipartUpload:
 
 
 # ---------------------------------------------------------------------------
+# Chunked upload fallback (NEW) — /api/upload/chunk + /api/upload/finish
+# When multipart POST /api/upload is blocked at the network layer (corp
+# proxies / DLP / body-size limits), the frontend falls back to base64 JSON
+# chunks. Verify chunks aggregate correctly, files serve identical bytes,
+# and error cases (unknown upload_id, missing chunks, bad index) return the
+# right status codes.
+# ---------------------------------------------------------------------------
+class TestChunkedUpload:
+    """Base64 JSON chunk upload fallback used when multipart is blocked."""
+
+    def test_chunked_upload_roundtrip(self, api_client):
+        # Large noisy JPEG so base64 exceeds the 300KB chunk boundary and we
+        # exercise multi-chunk assembly. Plain gradients compress too well.
+        from PIL import Image
+        import random as _r
+        _r.seed(1)
+        w, h = 900, 700
+        img = Image.new("RGB", (w, h))
+        img.putdata([(_r.randint(60, 220), _r.randint(30, 180), _r.randint(20, 160)) for _ in range(w * h)])
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=92)
+        big = buf.getvalue()
+        assert len(big) > 250_000, f"expected substantial image, got {len(big)}"
+        b64 = base64.b64encode(big).decode("ascii")
+        CHUNK = 300 * 1024
+        total = max(1, -(-len(b64) // CHUNK))
+        assert total >= 2, f"expected multiple chunks, got {total}"
+        upload_id = "TEST_chunked_" + base64.b32encode(os.urandom(6)).decode().rstrip("=")
+        for i in range(total):
+            payload = {
+                "upload_id": upload_id,
+                "index": i,
+                "total": total,
+                "data": b64[i * CHUNK:(i + 1) * CHUNK],
+            }
+            r = api_client.post(f"{API}/upload/chunk", json=payload, timeout=60)
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body.get("received") == i + 1
+            assert body.get("total") == total
+        r = api_client.post(f"{API}/upload/finish", json={"upload_id": upload_id, "ext": "jpg"}, timeout=120)
+        assert r.status_code == 200, r.text
+        image_path = r.json().get("image_path")
+        assert image_path and image_path.endswith(".jpg"), image_path
+        # Verify bytes served back are byte-identical
+        rf = api_client.get(f"{API}/files/{image_path}", timeout=60)
+        assert rf.status_code == 200
+        assert rf.headers.get("Content-Type", "").startswith("image/")
+        assert rf.content == big, f"served bytes differ (served {len(rf.content)} vs original {len(big)})"
+        pytest.chunked_image_path = image_path
+
+    def test_chunked_finish_unknown_upload_id_returns_404(self, api_client):
+        r = api_client.post(
+            f"{API}/upload/finish",
+            json={"upload_id": "TEST_bogus_unknown_id_xyz", "ext": "jpg"},
+            timeout=30,
+        )
+        assert r.status_code == 404, r.text
+
+    def test_chunked_finish_missing_chunks_returns_400(self, api_client):
+        upload_id = "TEST_partial_" + base64.b32encode(os.urandom(6)).decode().rstrip("=")
+        # Send only index 0 of total 3
+        payload = {"upload_id": upload_id, "index": 0, "total": 3, "data": base64.b64encode(b"abc").decode("ascii")}
+        r = api_client.post(f"{API}/upload/chunk", json=payload, timeout=30)
+        assert r.status_code == 200, r.text
+        r2 = api_client.post(f"{API}/upload/finish", json={"upload_id": upload_id, "ext": "jpg"}, timeout=30)
+        assert r2.status_code == 400, r2.text
+
+    def test_chunked_bad_index_returns_400(self, api_client):
+        upload_id = "TEST_badidx_" + base64.b32encode(os.urandom(6)).decode().rstrip("=")
+        payload = {"upload_id": upload_id, "index": 5, "total": 3, "data": base64.b64encode(b"abc").decode("ascii")}
+        r = api_client.post(f"{API}/upload/chunk", json=payload, timeout=30)
+        assert r.status_code == 400, r.text
+
+    def test_analyze_chunked_image_end_to_end(self, api_client):
+        image_path = getattr(pytest, "chunked_image_path", None)
+        if not image_path:
+            pytest.skip("chunked upload roundtrip didn't succeed")
+        payload = {
+            "image_path": image_path,
+            "sample_id": "TEST_CHUNKED_ANALYZE",
+            "oil_type": "Engine Oil SAE 15W-40",
+            "batch": "TEST_CHUNK_LOT",
+            "operator": "Automated Chunk Test",
+            "temperature_c": 320, "duration_hours": 16, "air_flow": 10, "oil_flow": 0.31,
+            "remark": "chunked-upload pytest",
+        }
+        import time as _t
+        r = api_client.post(f"{API}/analyze/start", json=payload, timeout=60)
+        assert r.status_code == 200, r.text
+        job = r.json()
+        assert job.get("id") and job.get("status") == "running", job
+        deadline = _t.time() + 300
+        last = None
+        while _t.time() < deadline:
+            _t.sleep(3)
+            rp = api_client.get(f"{API}/analyze/jobs/{job['id']}", timeout=30)
+            assert rp.status_code == 200
+            last = rp.json()
+            if last.get("status") != "running":
+                break
+        assert last and last.get("status") == "done", f"chunked analyze did not finish: {last}"
+        rid = last.get("record_id")
+        assert rid, last
+        rr = api_client.get(f"{API}/tests/{rid}", timeout=30)
+        assert rr.status_code == 200
+        rec = rr.json()
+        assert 0 <= rec["rating"] <= 10
+        assert rec["meta"]["sample_id"] == "TEST_CHUNKED_ANALYZE"
+        pytest.chunked_analyze_id = rid
+
+    def test_zz_cleanup_chunked_analyze_record(self, api_client):
+        rid = getattr(pytest, "chunked_analyze_id", None)
+        if not rid:
+            pytest.skip("no chunked analyze record")
+        r = api_client.delete(f"{API}/tests/{rid}", timeout=30)
+        assert r.status_code == 200
+        r2 = api_client.get(f"{API}/tests/{rid}", timeout=30)
+        assert r2.status_code == 404
+
+
+
+
+# ---------------------------------------------------------------------------
 # Upload -> Analyze pipeline (real AI)
 # ---------------------------------------------------------------------------
 class TestAnalyzePipeline:

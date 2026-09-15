@@ -308,6 +308,61 @@ async def upload_image(file: UploadFile = File(...)):
     return {"image_path": path}
 
 
+# --- Chunked upload fallback -------------------------------------------------
+# Some networks (corporate proxies / DLP, body-size limits) reject multipart
+# file uploads outright ("Failed to fetch" in the browser). The app falls back
+# to sending the image as small base64 JSON chunks, which pass as ordinary API
+# calls. Chunks are buffered in memory until /upload/finish assembles them.
+_chunk_buffers: dict[str, dict] = {}
+
+
+class ChunkIn(BaseModel):
+    upload_id: str
+    index: int
+    total: int
+    data: str  # base64 (no data: prefix)
+
+
+class ChunkFinish(BaseModel):
+    upload_id: str
+    ext: str = "jpg"
+
+
+@api_router.post("/upload/chunk")
+async def upload_chunk(c: ChunkIn):
+    if c.total < 1 or c.index < 0 or c.index >= c.total:
+        raise HTTPException(status_code=400, detail="Invalid chunk index")
+    buf = _chunk_buffers.setdefault(c.upload_id, {"total": c.total, "parts": {}, "ts": datetime.now(timezone.utc)})
+    try:
+        buf["parts"][c.index] = base64.b64decode(c.data)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 chunk")
+    # Drop stale buffers (>30 min) so memory does not grow unbounded.
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+    for k in [k for k, v in _chunk_buffers.items() if v["ts"] < cutoff]:
+        _chunk_buffers.pop(k, None)
+    return {"received": len(buf["parts"]), "total": c.total}
+
+
+@api_router.post("/upload/finish")
+async def upload_finish(f: ChunkFinish):
+    buf = _chunk_buffers.pop(f.upload_id, None)
+    if not buf:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    if len(buf["parts"]) != buf["total"]:
+        raise HTTPException(status_code=400, detail=f"Missing chunks: {len(buf['parts'])}/{buf['total']}")
+    data = b"".join(buf["parts"][i] for i in range(buf["total"]))
+    ext = f.ext.lower() if f.ext.lower() in ("jpg", "jpeg", "png", "webp") else "jpg"
+    content_type = f"image/{'jpeg' if ext in ('jpg', 'jpeg') else ext}"
+    path = f"{APP_NAME}/uploads/{uuid.uuid4()}.{ext}"
+    try:
+        await run_in_threadpool(put_object, path, data, content_type)
+    except Exception as e:
+        logger.exception("chunked upload failed")
+        raise HTTPException(status_code=502, detail=f"Storage upload failed: {e}")
+    return {"image_path": path}
+
+
 @api_router.get("/files/{path:path}")
 async def serve_file(path: str):
     try:

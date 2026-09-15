@@ -243,3 +243,15 @@ agent_communication:
         -working: "NA"
         -agent: "main"
         -comment: "BUG FIX. Root cause: the ingress proxy returns 502 after 60s; Gemini 3.1 Pro took >100s on full-res photos so POST /api/analyze never returned to the app ('Run AI Vision Analysis' failed). Fix: (1) backend downscales the image to max 1600px JPEG before sending to Gemini; (2) NEW async flow: POST /api/analyze/start returns {id,status:'running'} immediately and runs the analysis as a background task persisted in Mongo collection analyze_jobs; GET /api/analyze/jobs/{id} returns status running|done|error with record_id; (3) frontend useAnalyze now calls /analyze/start then polls every 2.5s (up to 6 min) and fetches GET /api/tests/{record_id}; stage text shows elapsed seconds. Legacy POST /api/analyze kept (sync). Verified manually via external URL: job done in ~25s."
+
+  - task: "Upload 'Failed to fetch' on laptop — chunked upload fallback + web downscale"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py, frontend/src/api.ts"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "User (Chrome, preview link) gets 'Upload foto gagal: Failed to fetch' immediately; not reproducible in headless Chromium (even 11MB uploads pass) → likely the user's network/proxy blocks multipart uploads. Fix: (1) NEW backend endpoints POST /api/upload/chunk {upload_id,index,total,data(base64)} and POST /api/upload/finish {upload_id,ext} → assembles and stores to object storage, returns {image_path}; stale buffers pruned after 30 min; finish on unknown id → 404. (2) frontend uploadImage: web downsizes to max 2000px via canvas, tries multipart, and on TypeError/413 falls back to 300KB base64 JSON chunks (with retry); native falls back too on network failure/413. (3) JSON POSTs have 3x retry. Verified via Playwright with /api/upload aborted at network level: chunks → analyze/start → poll → /result/{id}."

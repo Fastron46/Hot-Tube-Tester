@@ -81,9 +81,11 @@ export default function NewTest() {
       return;
     }
     setBusy(true);
+    let step = "Upload foto";
     try {
       setStage("Uploading image…");
       const path = await uploadImage(imageUri);
+      step = "Analisa AI";
       setStage("Running AI Vision segmentation…");
       const payload: AnalyzePayload = {
         image_path: path,
@@ -103,7 +105,8 @@ export default function NewTest() {
       setSampleId(defaultSampleId());
       router.push(`/result/${result.id}`);
     } catch (e: any) {
-      toast(e?.message ? String(e.message).slice(0, 120) : "AI analysis failed.", "error");
+      const msg = e?.message ? String(e.message).slice(0, 110) : "AI analysis failed.";
+      toast(`${step} gagal: ${msg}`, "error");
     } finally {
       setBusy(false);
       setStage("");

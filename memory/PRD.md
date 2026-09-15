@@ -74,6 +74,8 @@
 - Root cause: ingress proxy returns 502 after 60s; Gemini 3.1 Pro took >100s on full-res photos.
 - Fix: image downscaled to max 1600px before Gemini; NEW async flow `POST /api/analyze/start` → `GET /api/analyze/jobs/{id}` (Mongo `analyze_jobs`), frontend polls every 2.5s (≤6 min) and shows elapsed seconds. Verified 24/24 backend tests via external URL (job ~25-45s).
 
+- Follow-up ("Failed to fetch" on laptop Chrome): added chunked base64 JSON upload fallback (`POST /api/upload/chunk` + `/api/upload/finish`) used automatically when multipart upload fails at network level or with 413 (web + native); web downsizes to 2000px before upload; JSON POSTs retry 3x. Verified 30/30 backend + Playwright with multipart blocked.
+
 ## Next Tasks
 - Gather user feedback on rating accuracy vs their standard reference samples.
 - Consider a "reference calibration" flow so the AI can be tuned to a lab's known-good tubes.
