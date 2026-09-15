@@ -17,6 +17,39 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fileUrl, imageToDataUri, TestUpdate, useDeleteTest, useTest, useUpdateTest } from "@/src/api";
+
+// Web-only: print a specific HTML document in an isolated hidden iframe.
+// expo-print's web implementation just calls window.print(), which prints the
+// whole on-screen app DOM (including the on-screen "Edit" buttons). Printing our
+// generated report HTML inside an iframe keeps the PDF limited to the report.
+function printHtmlOnWeb(html: string) {
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  document.body.appendChild(iframe);
+  const cw = iframe.contentWindow;
+  const doc = cw?.document;
+  if (!cw || !doc) {
+    iframe.remove();
+    return;
+  }
+  doc.open();
+  doc.write(html);
+  doc.close();
+  setTimeout(() => {
+    try {
+      cw.focus();
+      cw.print();
+    } catch {
+      // ignore print errors
+    }
+    setTimeout(() => iframe.remove(), 1000);
+  }, 400);
+}
 import { Header } from "@/src/components/Header";
 import { KHTScale } from "@/src/components/KHTScale";
 import { ParameterTable, paramRows } from "@/src/components/ParameterTable";
@@ -157,7 +190,7 @@ export default function Result() {
         </body></html>`;
 
       if (Platform.OS === "web") {
-        await Print.printAsync({ html });
+        printHtmlOnWeb(html);
       } else {
         const { uri } = await Print.printToFileAsync({ html });
         if (await Sharing.isAvailableAsync()) {
