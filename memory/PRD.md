@@ -65,6 +65,11 @@
   - Frontend: new screen `app/color-scale.tsx` (board image from DB + 0-10 level legend with swatches/condition/PASS-FAIL), reachable via entry cards on Dashboard and Settings (bottom bar stays 4 tabs). Backend verified.
   - Per user: NO separate "senior technician recommendation" section was added.
 
+### Update — Combined PDF export (History & Data)
+- Every row on the History & Data tab now shows a **checkbox** (always visible). Tapping it selects the sample; header ✕ cancels; "Pilih Semua" chip toggles all; long-press also selects.
+- Floating action bar → **EXPORT PDF** builds ONE integrated PDF via `src/utils/pdf-report.ts`: page 1 = cover (title, generated date, Total/Pass/Fail/Avg stats, summary table of all samples), then exactly one page per selected sample (photo embedded as base64, rating, status, description, recommendation, parameters, test info). Verified: 4 samples → 5-page PDF.
+- Native: `expo-print` → share sheet; Web: isolated iframe print dialog (save as PDF).
+
 ## Next Tasks
 - Gather user feedback on rating accuracy vs their standard reference samples.
 - Consider a "reference calibration" flow so the AI can be tuned to a lab's known-good tubes.

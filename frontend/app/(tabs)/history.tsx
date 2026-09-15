@@ -1,9 +1,12 @@
 import { useRouter } from "expo-router";
-import { MagnifyingGlass } from "phosphor-react-native";
-import { useMemo, useState } from "react";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
+import { Check, CheckSquare, Export, MagnifyingGlass, Square, X } from "phosphor-react-native";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,11 +14,14 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { TestRecord, useTests } from "@/src/api";
 import { Header } from "@/src/components/Header";
 import { HistoryCard } from "@/src/components/HistoryCard";
+import { useToast } from "@/src/components/Toast";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
+import { buildCombinedReportHtml, printHtmlOnWeb } from "@/src/utils/pdf-report";
 
 type Filter = "all" | "pass" | "fail";
 const FILTERS: { label: string; value: Filter }[] = [
@@ -28,9 +34,15 @@ export default function History() {
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
+  const toast = useToast();
+  const insets = useSafeAreaInsets();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const { data, isLoading, refetch, isRefetching } = useTests(q);
+
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
 
   const rows = useMemo(() => {
     const list = data ?? [];
@@ -38,9 +50,92 @@ export default function History() {
     return list.filter((t) => t.status.toUpperCase() === (filter === "pass" ? "PASS" : "FAIL"));
   }, [data, filter]);
 
+  const enterSelection = useCallback((initialId?: string) => {
+    setSelectionMode(true);
+    if (initialId) setSelectedIds(new Set([initialId]));
+  }, []);
+
+  const exitSelection = useCallback(() => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const toggleOne = useCallback((id: string) => {
+    setSelectionMode(true);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const allSelected = rows.length > 0 && rows.every((t) => selectedIds.has(t.id));
+
+  const toggleSelectAll = useCallback(() => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(rows.map((t) => t.id)));
+    }
+  }, [allSelected, rows]);
+
+  async function exportCombined() {
+    if (selectedIds.size === 0) {
+      toast("Pilih minimal 1 sample.", "info");
+      return;
+    }
+    setExporting(true);
+    try {
+      // Keep the visual order from the current filtered list.
+      const selected: TestRecord[] = rows.filter((t) => selectedIds.has(t.id));
+      if (selected.length === 0) {
+        toast("Sample terpilih tidak ada di daftar aktif.", "error");
+        return;
+      }
+      const html = await buildCombinedReportHtml(selected);
+      if (Platform.OS === "web") {
+        printHtmlOnWeb(html);
+        toast(`Menyiapkan PDF gabungan (${selected.length} sample).`, "success");
+      } else {
+        const { uri } = await Print.printToFileAsync({ html });
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri, {
+            mimeType: "application/pdf",
+            dialogTitle: `KHT Combined Report (${selected.length} sample)`,
+          });
+        } else {
+          toast("PDF berhasil dibuat.", "success");
+        }
+      }
+      exitSelection();
+    } catch (e: any) {
+      toast(e?.message ? String(e.message).slice(0, 120) : "Gagal export PDF.", "error");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const selectedCount = selectedIds.size;
+
   return (
     <View style={styles.screen}>
-      <Header title="History & Data" subtitle="Test records" showSettings />
+      <Header
+        title="History & Data"
+        subtitle={selectionMode ? `${selectedCount} dipilih` : "Test records"}
+        showSettings={!selectionMode}
+        right={
+          selectionMode ? (
+            <Pressable style={styles.hIcon} onPress={exitSelection} testID="history-selection-cancel">
+              <X size={20} color={colors.onSurface} weight="bold" />
+            </Pressable>
+          ) : (
+            <Pressable style={styles.hIcon} onPress={() => enterSelection()} testID="history-selection-enter">
+              <CheckSquare size={20} color={colors.brandPrimary} weight="bold" />
+            </Pressable>
+          )
+        }
+      />
 
       {/* sticky search + chips */}
       <View style={styles.toolbar}>
@@ -74,6 +169,22 @@ export default function History() {
               </Pressable>
             );
           })}
+          {selectionMode && rows.length > 0 && (
+            <Pressable
+              testID="history-select-all"
+              onPress={toggleSelectAll}
+              style={[styles.chip, styles.chipSelectAll, allSelected && styles.chipActive]}
+            >
+              {allSelected ? (
+                <Check size={12} color={colors.onBrandPrimary} weight="bold" />
+              ) : (
+                <Square size={12} color={colors.brandPrimary} weight="bold" />
+              )}
+              <Text style={[styles.chipText, allSelected && styles.chipTextActive]}>
+                {allSelected ? "Batalkan Pilih Semua" : "Pilih Semua"}
+              </Text>
+            </Pressable>
+          )}
         </ScrollView>
       </View>
 
@@ -85,13 +196,23 @@ export default function History() {
         <FlatList<TestRecord>
           data={rows}
           keyExtractor={(t) => t.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[
+            styles.list,
+            selectionMode && { paddingBottom: insets.bottom + 96 + spacing.xxl },
+          ]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.brandPrimary} />
           }
           renderItem={({ item }) => (
-            <HistoryCard test={item} onPress={() => router.push(`/result/${item.id}`)} />
+            <HistoryCard
+              test={item}
+              onPress={() => router.push(`/result/${item.id}`)}
+              selectionMode={selectionMode}
+              selected={selectedIds.has(item.id)}
+              onToggleSelect={() => toggleOne(item.id)}
+              onLongPress={() => enterSelection(item.id)}
+            />
           )}
           ListEmptyComponent={
             <View style={styles.center}>
@@ -100,12 +221,37 @@ export default function History() {
           }
         />
       )}
+
+      {selectionMode && (
+        <View style={[styles.actionBar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
+          <View style={styles.actionInner}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.actionCount}>{selectedCount} SAMPLE DIPILIH</Text>
+              <Text style={styles.actionHint}>Gabung menjadi 1 file PDF (cover + per halaman)</Text>
+            </View>
+            <Pressable
+              testID="history-export-combined"
+              style={[styles.exportBtn, (selectedCount === 0 || exporting) && styles.exportBtnDisabled]}
+              onPress={exportCombined}
+              disabled={selectedCount === 0 || exporting}
+            >
+              {exporting ? (
+                <ActivityIndicator size="small" color={colors.onBrandPrimary} />
+              ) : (
+                <Export size={16} color={colors.onBrandPrimary} weight="bold" />
+              )}
+              <Text style={styles.exportText}>{exporting ? "MENYIAPKAN…" : "EXPORT PDF"}</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
 
 const useStyles = makeStyles((c) => ({
   screen: { flex: 1, backgroundColor: c.surface },
+  hIcon: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   toolbar: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
@@ -138,11 +284,44 @@ const useStyles = makeStyles((c) => ({
     borderColor: c.border,
     alignItems: "center",
     justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
   },
   chipActive: { backgroundColor: c.brandPrimary, borderColor: c.brandPrimary },
+  chipSelectAll: { borderColor: c.brandPrimary },
   chipText: { fontFamily: fonts.monoMedium, fontSize: 12, color: c.onSurfaceTertiary },
   chipTextActive: { color: c.onBrandPrimary, fontFamily: fonts.monoBold },
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xxl },
   center: { alignItems: "center", justifyContent: "center", paddingVertical: spacing.xxxl, gap: spacing.md },
   dim: { fontFamily: fonts.mono, fontSize: 12, color: c.muted },
+
+  actionBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: c.surfaceSecondary,
+    borderTopWidth: 1,
+    borderTopColor: c.border,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  actionInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  actionCount: { fontFamily: fonts.monoBold, fontSize: 12, color: c.brandPrimary, letterSpacing: 1 },
+  actionHint: { fontFamily: fonts.mono, fontSize: 10, color: c.onSurfaceTertiary, marginTop: 2 },
+  exportBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: c.brandPrimary,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    height: 46,
+  },
+  exportBtnDisabled: { opacity: 0.5 },
+  exportText: { fontFamily: fonts.monoBold, fontSize: 12, color: c.onBrandPrimary, letterSpacing: 1 },
 }));

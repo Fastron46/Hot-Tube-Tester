@@ -194,6 +194,18 @@ frontend:
         -agent: "main"
         -comment: "Imported from GitHub. Reconstructed frontend/.env (EXPO_PUBLIC_BACKEND_URL + packager vars). Dashboard renders fully with seeded data (rating gauge 8.7, PASS, stats, KHT reference scale, parameter table) and bottom tabs. Verified via direct Playwright DOM dump + screenshot, no runtime errors."
 
+  - task: "History multi-select + combined PDF export"
+    implemented: true
+    working: "NA"
+    file: "frontend/app/(tabs)/history.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "NEW FEATURE. (1) history.tsx now has a selection mode: header 'CheckSquare' button (testID=history-selection-enter) toggles it; when active, HistoryCard renders a checkbox on the left and taps toggle selection instead of navigating. (2) Long-press on a card also enters selection mode with that card preselected. (3) Toolbar shows a 'Pilih Semua / Batalkan Pilih Semua' chip (testID=history-select-all) when in selection mode. (4) Cancel button in header (testID=history-selection-cancel) exits selection mode. (5) Floating footer bar shows 'N SAMPLE DIPILIH' + 'EXPORT PDF' button (testID=history-export-combined). (6) Export builds one HTML document containing: a cover page (title, timestamp, total/pass/fail/avg-rating stat row, summary table of samples with rating/status color), then one page per selected sample (rating, embedded base64 photo, deskripsi kondisi, rekomendasi, parameter table, test info) separated by CSS page-break-after. On web the HTML is printed via a hidden iframe; on native it goes through expo-print + expo-sharing. NEEDS FRONTEND TESTING to verify: entering/exiting selection mode, checkbox toggle per card, select-all chip, long-press enters selection, footer counter reflects state, and Export PDF triggers print/share (web: opens print dialog with combined content; native: shares generated PDF)."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
@@ -201,14 +213,15 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus: []
+  current_focus:
+    - "History multi-select + combined PDF export"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
     -agent: "main"
-    -message: "NEW FEATURE (Edit analysis result before PDF export). Backend changes in /app/backend/server.py to verify: (1) TestRecord model gained fields 'recommendation' (str, default ''), 'edited' (bool, default False), 'edited_at' (nullable str). (2) NEW endpoint PUT /api/tests/{id} accepts a partial JSON body with any of: rating(0-10 float), performance, status, deposit_level_label, ai_summary, recommendation. Behavior to verify: (a) sending {'rating': 4.2} updates rating to 4.2 AND recomputes status to 'FAIL' (since <7); sending {'rating': 8.0} recomputes status to 'PASS' (>=7); rating is clamped to 0-10. (b) sending {'ai_summary': 'x', 'recommendation': 'y'} persists those strings. (c) the response is the full updated TestRecord with edited==true and a non-null edited_at. (d) changes persist — a subsequent GET /api/tests/{id} returns the updated values. (e) PUT on a non-existent id returns 404. Use one of the 4 seeded records for testing, and RESTORE it afterward (PUT it back to its original rating/ai_summary and set recommendation to '') so the demo stays clean; do not leave any record with edited data or create/delete seeds. (3) Regression: GET /api/tests, GET /api/tests/{id}, GET /api/dashboard, GET /api/trend, GET /api/color-scale still work. Do NOT run the AI /api/analyze in this round (no need) and do NOT test the frontend."
+    -message: "NEW FEATURE: added multi-select checkbox on History page and combined PDF export. Backend was not modified in this round. Files changed: frontend/app/(tabs)/history.tsx, frontend/src/components/HistoryCard.tsx, and NEW frontend/src/utils/pdf-report.ts. Also had to reconstruct /app/backend/.env (MONGO_URL, DB_NAME, EMERGENT_LLM_KEY, INTEGRATION_PROXY_URL) and /app/frontend/.env (EXPO_PUBLIC_BACKEND_URL + packager vars) because those files went missing between jobs. Do NOT run backend tests — no backend code changed. Please wait for the user to authorise frontend testing before running the frontend testing agent." (1) TestRecord model gained fields 'recommendation' (str, default ''), 'edited' (bool, default False), 'edited_at' (nullable str). (2) NEW endpoint PUT /api/tests/{id} accepts a partial JSON body with any of: rating(0-10 float), performance, status, deposit_level_label, ai_summary, recommendation. Behavior to verify: (a) sending {'rating': 4.2} updates rating to 4.2 AND recomputes status to 'FAIL' (since <7); sending {'rating': 8.0} recomputes status to 'PASS' (>=7); rating is clamped to 0-10. (b) sending {'ai_summary': 'x', 'recommendation': 'y'} persists those strings. (c) the response is the full updated TestRecord with edited==true and a non-null edited_at. (d) changes persist — a subsequent GET /api/tests/{id} returns the updated values. (e) PUT on a non-existent id returns 404. Use one of the 4 seeded records for testing, and RESTORE it afterward (PUT it back to its original rating/ai_summary and set recommendation to '') so the demo stays clean; do not leave any record with edited data or create/delete seeds. (3) Regression: GET /api/tests, GET /api/tests/{id}, GET /api/dashboard, GET /api/trend, GET /api/color-scale still work. Do NOT run the AI /api/analyze in this round (no need) and do NOT test the frontend."
     -agent: "testing"
     -message: "✅ COMPLETE - All backend tests passed (11/11). The live AI Vision flow is fully functional: upload works, Gemini gemini-3.1-pro-preview analysis completes in ~13s with proper rating/summary/parameters, MongoDB persistence works, retrieval/search/dashboard/trend all reflect the new record correctly, and soft delete works as expected. No issues found. The backend is production-ready."
     -agent: "testing"
