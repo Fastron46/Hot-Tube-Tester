@@ -79,3 +79,4 @@
 ## Next Tasks
 - Gather user feedback on rating accuracy vs their standard reference samples.
 - Consider a "reference calibration" flow so the AI can be tuned to a lab's known-good tubes.
+- Deployment health check PASS: generated frontend/yarn.lock (removed package-lock.json), un-ignored .env in .gitignore, bundled Barlow Condensed + JetBrains Mono fonts in frontend/assets/fonts (loaded via require, no CDN).

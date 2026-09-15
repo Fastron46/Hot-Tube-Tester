@@ -14,16 +14,14 @@ import { useTheme } from "@/src/theme";
 
 LogBox.ignoreAllLogs(true);
 
-const FONT_BASE = "https://cdn.jsdelivr.net/gh";
-
 export default function RootLayout() {
   const { colors } = useTheme();
   useFonts({
-    "BarlowCondensed-Bold": `${FONT_BASE}/google/fonts@main/ofl/barlowcondensed/BarlowCondensed-Bold.ttf`,
-    "BarlowCondensed-SemiBold": `${FONT_BASE}/google/fonts@main/ofl/barlowcondensed/BarlowCondensed-SemiBold.ttf`,
-    "JetBrainsMono-Regular": `${FONT_BASE}/JetBrains/JetBrainsMono@master/fonts/ttf/JetBrainsMono-Regular.ttf`,
-    "JetBrainsMono-Medium": `${FONT_BASE}/JetBrains/JetBrainsMono@master/fonts/ttf/JetBrainsMono-Medium.ttf`,
-    "JetBrainsMono-Bold": `${FONT_BASE}/JetBrains/JetBrainsMono@master/fonts/ttf/JetBrainsMono-Bold.ttf`,
+    "BarlowCondensed-Bold": require("../assets/fonts/BarlowCondensed-Bold.ttf"),
+    "BarlowCondensed-SemiBold": require("../assets/fonts/BarlowCondensed-SemiBold.ttf"),
+    "JetBrainsMono-Regular": require("../assets/fonts/JetBrainsMono-Regular.ttf"),
+    "JetBrainsMono-Medium": require("../assets/fonts/JetBrainsMono-Medium.ttf"),
+    "JetBrainsMono-Bold": require("../assets/fonts/JetBrainsMono-Bold.ttf"),
   });
 
   return (
