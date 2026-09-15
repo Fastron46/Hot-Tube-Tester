@@ -163,9 +163,21 @@ class TestRecord(BaseModel):
     deposit_level_label: str = ""
     parameters: Parameters = Field(default_factory=Parameters)
     ai_summary: str = ""
+    recommendation: str = ""
     ai_model: str = "gemini-3.1-pro-preview"
     created_at: str = Field(default_factory=now_iso)
+    edited: bool = False
+    edited_at: Optional[str] = None
     deleted_at: Optional[str] = None
+
+
+class TestUpdate(BaseModel):
+    rating: Optional[float] = None
+    performance: Optional[str] = None
+    status: Optional[str] = None
+    deposit_level_label: Optional[str] = None
+    ai_summary: Optional[str] = None
+    recommendation: Optional[str] = None
 
 
 app = FastAPI()
@@ -364,6 +376,28 @@ async def get_test(test_id: str):
     doc = await db.tests.find_one({"id": test_id, "deleted_at": None})
     if not doc:
         raise HTTPException(status_code=404, detail="Test not found")
+    return TestRecord(**doc)
+
+
+@api_router.put("/tests/{test_id}", response_model=TestRecord)
+async def update_test(test_id: str, upd: TestUpdate):
+    doc = await db.tests.find_one({"id": test_id, "deleted_at": None})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Test not found")
+    changes: dict = {k: v for k, v in upd.model_dump(exclude_none=True).items()}
+    if "rating" in changes:
+        changes["rating"] = _clamp(changes["rating"], 0, 10)
+        # Recompute PASS/FAIL from the edited rating unless caller overrides it.
+        if "status" not in changes:
+            changes["status"] = "PASS" if changes["rating"] >= 7 else "FAIL"
+    if "status" in changes and changes["status"]:
+        changes["status"] = str(changes["status"]).upper()
+    if not changes:
+        return TestRecord(**doc)
+    changes["edited"] = True
+    changes["edited_at"] = now_iso()
+    await db.tests.update_one({"id": test_id}, {"$set": changes})
+    doc = await db.tests.find_one({"id": test_id})
     return TestRecord(**doc)
 
 

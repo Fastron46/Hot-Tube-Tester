@@ -2,12 +2,21 @@ import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import { Export, TrashSimple } from "phosphor-react-native";
+import { Check, Export, PencilSimple, TrashSimple, X } from "phosphor-react-native";
 import { useState } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { fileUrl, imageToDataUri, useDeleteTest, useTest } from "@/src/api";
+import { fileUrl, imageToDataUri, TestUpdate, useDeleteTest, useTest, useUpdateTest } from "@/src/api";
 import { Header } from "@/src/components/Header";
 import { KHTScale } from "@/src/components/KHTScale";
 import { ParameterTable, paramRows } from "@/src/components/ParameterTable";
@@ -28,8 +37,78 @@ export default function Result() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: test, isLoading, isError } = useTest(id);
   const del = useDeleteTest();
+  const update = useUpdateTest();
   const [mode, setMode] = useState<"original" | "heatmap">("heatmap");
   const [exporting, setExporting] = useState(false);
+
+  type EditSection = "rating" | "summary" | "recommendation" | null;
+  const [editing, setEditing] = useState<EditSection>(null);
+  const [ratingDraft, setRatingDraft] = useState("");
+  const [summaryDraft, setSummaryDraft] = useState("");
+  const [recDraft, setRecDraft] = useState("");
+
+  function startEdit(section: Exclude<EditSection, null>) {
+    if (!test) return;
+    if (section === "rating") setRatingDraft(String(test.rating));
+    if (section === "summary") setSummaryDraft(test.ai_summary || "");
+    if (section === "recommendation") setRecDraft(test.recommendation || "");
+    setEditing(section);
+  }
+
+  async function saveEdit() {
+    if (!test || !editing) return;
+    const changes: TestUpdate = {};
+    if (editing === "rating") {
+      const n = parseFloat(ratingDraft.replace(",", "."));
+      if (isNaN(n) || n < 0 || n > 10) {
+        toast("Angka color scale harus 0 – 10.", "error");
+        return;
+      }
+      changes.rating = Math.round(n * 10) / 10;
+    } else if (editing === "summary") {
+      changes.ai_summary = summaryDraft.trim();
+    } else if (editing === "recommendation") {
+      changes.recommendation = recDraft.trim();
+    }
+    try {
+      await update.mutateAsync({ id: test.id, changes });
+      toast("Perubahan tersimpan.", "success");
+      setEditing(null);
+    } catch (e: any) {
+      toast(e?.message ? String(e.message).slice(0, 120) : "Gagal menyimpan.", "error");
+    }
+  }
+
+  function EditControls({ section }: { section: Exclude<EditSection, null> }) {
+    if (editing === section) {
+      return (
+        <View style={styles.editActions}>
+          <Pressable
+            style={styles.cancelBtn}
+            onPress={() => setEditing(null)}
+            disabled={update.isPending}
+            testID={`cancel-${section}`}
+          >
+            <X size={15} color={colors.onSurfaceTertiary} weight="bold" />
+          </Pressable>
+          <Pressable style={styles.saveBtn} onPress={saveEdit} disabled={update.isPending} testID={`save-${section}`}>
+            {update.isPending ? (
+              <ActivityIndicator size="small" color={colors.onBrandPrimary} />
+            ) : (
+              <Check size={14} color={colors.onBrandPrimary} weight="bold" />
+            )}
+            <Text style={styles.saveText}>Save</Text>
+          </Pressable>
+        </View>
+      );
+    }
+    return (
+      <Pressable style={styles.editBtn} onPress={() => startEdit(section)} testID={`edit-${section}`}>
+        <PencilSimple size={13} color={colors.brandPrimary} weight="bold" />
+        <Text style={styles.editText}>Edit</Text>
+      </Pressable>
+    );
+  }
 
   async function exportPdf() {
     if (!test) return;
@@ -63,7 +142,8 @@ export default function Result() {
           </div>
           <img src="${imgSrc}" />
           <div style="color:#64748b;font-size:11px;margin-top:4px">Original sample photo — ${test.meta.sample_id}</div>
-          <div class="card"><b>AI Summary</b><p style="font-size:13px;color:#374151">${test.ai_summary || "-"}</p></div>
+          <div class="card"><b>Deskripsi Kondisi</b><p style="font-size:13px;color:#374151">${test.ai_summary || "-"}</p></div>
+          <div class="card"><b>Rekomendasi</b><p style="font-size:13px;color:#374151">${test.recommendation || "-"}</p></div>
           <div class="card"><b>Parameter Analysis</b><table>${rows}</table></div>
           <div class="card"><b>Test Information</b><table>
             <tr><td>Product / Oil</td><td style="text-align:right">${test.meta.oil_type || "-"}</td></tr>
@@ -132,10 +212,12 @@ export default function Result() {
           <ActivityIndicator color={colors.brandPrimary} />
         </View>
       ) : (
-        <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xxl }]}
-          showsVerticalScrollIndicator={false}
-        >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <ScrollView
+            contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xxl }]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
           {/* tube viewer */}
           <View style={styles.card}>
             <Text style={styles.cardLabel}>SAMPLE ANALYSIS</Text>
@@ -157,11 +239,31 @@ export default function Result() {
           <View style={styles.card}>
             <View style={styles.cardHead}>
               <Text style={styles.cardLabel}>RESULT & RATING</Text>
-              <StatusBadge status={test.status} />
+              <View style={styles.headRight}>
+                <StatusBadge status={test.status} size="sm" />
+                <EditControls section="rating" />
+              </View>
             </View>
-            <View style={{ alignItems: "center", marginVertical: spacing.md }}>
-              <RatingGauge rating={test.rating} performance={test.performance} confidence={test.confidence} />
-            </View>
+            {editing === "rating" ? (
+              <View style={styles.editInline}>
+                <Text style={styles.editHint}>Angka Color Scale (0 – 10)</Text>
+                <TextInput
+                  testID="rating-input"
+                  value={ratingDraft}
+                  onChangeText={setRatingDraft}
+                  keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                  style={styles.numInput}
+                  placeholder="0 - 10"
+                  placeholderTextColor={colors.muted}
+                  autoFocus
+                />
+                <Text style={styles.editHint}>Status dihitung otomatis: PASS bila ≥ 7, selain itu FAIL.</Text>
+              </View>
+            ) : (
+              <View style={{ alignItems: "center", marginVertical: spacing.md }}>
+                <RatingGauge rating={test.rating} performance={test.performance} confidence={test.confidence} />
+              </View>
+            )}
             <View style={styles.split}>
               <View style={styles.splitCell}>
                 <Text style={styles.splitLabel}>DEPOSIT LEVEL</Text>
@@ -179,10 +281,50 @@ export default function Result() {
             </View>
           </View>
 
-          {/* AI summary */}
+          {/* Deskripsi kondisi (AI summary, editable) */}
           <View style={styles.card}>
-            <Text style={styles.cardLabel}>AI VISION SUMMARY</Text>
-            <Text style={styles.summary}>{test.ai_summary || "No summary available."}</Text>
+            <View style={styles.cardHead}>
+              <Text style={styles.cardLabel}>DESKRIPSI KONDISI</Text>
+              <EditControls section="summary" />
+            </View>
+            {editing === "summary" ? (
+              <TextInput
+                testID="summary-input"
+                value={summaryDraft}
+                onChangeText={setSummaryDraft}
+                style={styles.textArea}
+                multiline
+                placeholder="Tulis deskripsi kondisi endapan…"
+                placeholderTextColor={colors.muted}
+                autoFocus
+              />
+            ) : (
+              <Text style={styles.summary}>{test.ai_summary || "Belum ada deskripsi."}</Text>
+            )}
+          </View>
+
+          {/* Rekomendasi (editable, manual) */}
+          <View style={styles.card}>
+            <View style={styles.cardHead}>
+              <Text style={styles.cardLabel}>REKOMENDASI</Text>
+              <EditControls section="recommendation" />
+            </View>
+            {editing === "recommendation" ? (
+              <TextInput
+                testID="recommendation-input"
+                value={recDraft}
+                onChangeText={setRecDraft}
+                style={styles.textArea}
+                multiline
+                placeholder="Tulis rekomendasi tindakan…"
+                placeholderTextColor={colors.muted}
+                autoFocus
+              />
+            ) : (
+              <Text style={[styles.summary, !test.recommendation && { color: colors.muted }]}>
+                {test.recommendation || "Belum ada rekomendasi. Tap Edit untuk menambahkan."}
+              </Text>
+            )}
           </View>
 
           {/* parameters */}
@@ -215,6 +357,7 @@ export default function Result() {
             <Text style={styles.deleteText}>Delete this test</Text>
           </Pressable>
         </ScrollView>
+        </KeyboardAvoidingView>
       )}
     </View>
   );
@@ -246,6 +389,68 @@ const useStyles = makeStyles((c) => ({
   },
   cardHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   cardLabel: { fontFamily: fonts.mono, fontSize: 11, color: c.brandPrimary, letterSpacing: 1.5 },
+  headRight: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  editBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 5,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: c.borderStrong,
+    backgroundColor: c.surfaceTertiary,
+  },
+  editText: { fontFamily: fonts.monoBold, fontSize: 11, color: c.brandPrimary, letterSpacing: 0.5 },
+  editActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  cancelBtn: {
+    width: 32,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: c.border,
+    backgroundColor: c.surfaceTertiary,
+  },
+  saveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 6,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.sm,
+    backgroundColor: c.brandPrimary,
+  },
+  saveText: { fontFamily: fonts.monoBold, fontSize: 11, color: c.onBrandPrimary, letterSpacing: 0.5 },
+  editInline: { marginTop: spacing.md, gap: spacing.sm },
+  editHint: { fontFamily: fonts.mono, fontSize: 10, color: c.muted },
+  numInput: {
+    backgroundColor: c.surface,
+    borderWidth: 1,
+    borderColor: c.borderStrong,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    height: 54,
+    fontFamily: fonts.display,
+    fontSize: 28,
+    color: c.onSurface,
+    textAlign: "center",
+  },
+  textArea: {
+    backgroundColor: c.surface,
+    borderWidth: 1,
+    borderColor: c.borderStrong,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    minHeight: 96,
+    marginTop: spacing.sm,
+    fontFamily: fonts.mono,
+    fontSize: 13,
+    color: c.onSurface,
+    lineHeight: 20,
+    textAlignVertical: "top",
+  },
   split: { flexDirection: "row", borderTopWidth: 1, borderTopColor: c.divider, marginTop: spacing.sm },
   splitCell: { flex: 1, paddingVertical: spacing.md, paddingHorizontal: spacing.sm },
   splitLabel: { fontFamily: fonts.mono, fontSize: 9, color: c.muted, letterSpacing: 1 },

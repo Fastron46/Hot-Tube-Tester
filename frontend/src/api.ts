@@ -47,8 +47,11 @@ export type TestRecord = {
   deposit_level_label: string;
   parameters: Parameters;
   ai_summary: string;
+  recommendation: string;
   ai_model: string;
   created_at: string;
+  edited?: boolean;
+  edited_at?: string | null;
 };
 
 export type DashboardData = {
@@ -202,6 +205,39 @@ export function useDeleteTest() {
       return res.json();
     },
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["tests"] });
+      qc.invalidateQueries({ queryKey: ["trend"] });
+    },
+  });
+}
+
+export type TestUpdate = Partial<{
+  rating: number;
+  performance: string;
+  status: string;
+  deposit_level_label: string;
+  ai_summary: string;
+  recommendation: string;
+}>;
+
+export function useUpdateTest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, changes }: { id: string; changes: TestUpdate }) => {
+      const res = await fetch(`${API}/tests/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(changes),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || `Update failed: ${res.status}`);
+      }
+      return (await res.json()) as TestRecord;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(["test", data.id], data);
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["tests"] });
       qc.invalidateQueries({ queryKey: ["trend"] });
