@@ -11,7 +11,7 @@ import base64
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://komatsu-tracker.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://fleet-monitor-216.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 # --- Real (non-blank) JPEG image with visual features -----------------------
